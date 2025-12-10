@@ -8,13 +8,13 @@ import (
 var (
 	metricSnapshotsPushed = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "cxds_snapshots_pushed_total",
+			Name: "flexds_snapshots_pushed_total",
 			Help: "Total number of snapshots pushed to the cache",
 		},
 	)
 	metricServicesDiscovered = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "cxds_services_discovered",
+			Name: "flexds_services_discovered",
 			Help: "Number of services discovered from Consul",
 		},
 	)

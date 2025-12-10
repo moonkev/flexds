@@ -8,19 +8,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	consulapi "github.com/hashicorp/consul/api"
-	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	consulapi "github.com/hashicorp/consul/api"
+	"github.com/moonkev/flexds/config"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
-	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
-	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 )
 
 var version uint64 = 1
@@ -76,8 +77,8 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 
 		// Cluster (EDS)
 		cl := &cluster.Cluster{
-			Name:           clusterName,
-			ConnectTimeout: durationpb.New(2 * time.Second),
+			Name:                 clusterName,
+			ConnectTimeout:       durationpb.New(2 * time.Second),
 			ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
 			EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
 				EdsConfig: &core.ConfigSource{
@@ -116,7 +117,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 						Address: &core.Address{
 							Address: &core.Address_SocketAddress{
 								SocketAddress: &core.SocketAddress{
-									Address: addr,
+									Address:       addr,
 									PortSpecifier: &core.SocketAddress_PortValue{PortValue: uint32(e.Service.Port)},
 								},
 							},
@@ -137,36 +138,19 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		routePatterns := routeBuilder.BuildRoutes(parsedForRouting)
 
 		// Convert patterns to routes - patterns are RoutePattern objects from config package
-		// Since we're using interface{} for generic support, we need to access via reflection
-		// or accept a simpler approach and work with RoutePattern directly
 		for _, rpInterface := range routePatterns {
-			// Try to assert to map[string]string which we can work with
-			rpMap, ok := rpInterface.(map[string]interface{})
+			// Assert to config.RoutePattern struct
+			rp, ok := rpInterface.(config.RoutePattern)
 			if !ok {
+				log.Printf("[BUILD SNAPSHOT] warning: failed to assert route pattern to RoutePattern type")
 				continue
 			}
 
-			// Extract fields with type conversion
-			pathPrefix := ""
-			if v, ok := rpMap["PathPrefix"].(string); ok {
-				pathPrefix = v
-			}
-			matchType := "path"
-			if v, ok := rpMap["MatchType"].(string); ok {
-				matchType = v
-			}
-			headerName := ""
-			if v, ok := rpMap["HeaderName"].(string); ok {
-				headerName = v
-			}
-			headerValue := ""
-			if v, ok := rpMap["HeaderValue"].(string); ok {
-				headerValue = v
-			}
-			prefixRewrite := ""
-			if v, ok := rpMap["PrefixRewrite"].(string); ok {
-				prefixRewrite = v
-			}
+			pathPrefix := rp.PathPrefix
+			matchType := rp.MatchType
+			headerName := rp.HeaderName
+			headerValue := rp.HeaderValue
+			prefixRewrite := rp.PrefixRewrite
 
 			ra := &route.RouteAction{
 				ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
@@ -265,7 +249,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 	}
 
 	ln := &listener.Listener{
-		Name: "listener_0",
+		Name:    "listener_0",
 		Address: &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "0.0.0.0", PortSpecifier: &core.SocketAddress_PortValue{PortValue: 18080}}}},
 		FilterChains: []*listener.FilterChain{{
 			Filters: []*listener.Filter{{
@@ -279,7 +263,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 	// Build snapshot
 	snapVer := fmt.Sprintf("%d", atomic.AddUint64(&version, 1))
 	snap, err := cachev3.NewSnapshot(snapVer, map[resource.Type][]types.Resource{
-		resource.ClusterType:   clusters,
+		resource.ClusterType:  clusters,
 		resource.EndpointType: endpoints,
 		resource.RouteType:    routes,
 		resource.ListenerType: listeners,

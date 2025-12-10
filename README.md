@@ -1,6 +1,6 @@
-# Consul XDS Gateway
+# FlexDS
 
-A production-ready Envoy XDS (Extensible Discovery Service) server that bridges Consul service discovery with Envoy proxy, enabling dynamic configuration, flexible routing, and automatic service mesh management.
+An Envoy XDS (Extensible Discovery Service) server that bridges Consul service discovery with Envoy proxy, enabling dynamic configuration, flexible routing, and automatic service mesh management.
 
 ## Quick Start
 
@@ -26,7 +26,7 @@ The XDS server will start on **port 18000** and begin streaming configuration to
 └──────┬──────┘
        ▼
 ┌────────────────────────────┐
-│  Consul XDS Gateway        │ ← This service (port 18000 gRPC)
+│  FlexDS                    │ ← This service (port 18000 gRPC)
 │  Dynamic Configuration     │
 └──────┬─────────────────────┘
        │ ADS Protocol Stream
