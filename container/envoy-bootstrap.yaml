@@ -16,7 +16,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: 127.0.0.1
+                address: flexds
                 port_value: 18000
 
 dynamic_resources:

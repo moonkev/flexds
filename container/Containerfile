@@ -1,0 +1,21 @@
+FROM golang:1.24-alpine AS builder
+WORKDIR /src
+
+# Cache modules
+COPY go.mod go.sum ./
+RUN apk add --no-cache ca-certificates git && \
+    go env -w GOPROXY=https://proxy.golang.org && \
+    go mod download
+
+# Copy sources and build
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags='-s -w' -o /out/flexds ./
+
+FROM alpine:3.18
+RUN addgroup -S app && adduser -S app -G app
+COPY --from=builder /out/flexds /usr/local/bin/flexds
+RUN chmod +x /usr/local/bin/flexds
+USER app
+WORKDIR /home/app
+ENTRYPOINT ["/usr/local/bin/flexds"]
+CMD ["-consul", "consul:8500", "-ads-port", "18000", "-admin-port", "19005"]

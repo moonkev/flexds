@@ -1,0 +1,52 @@
+version: '3.8'
+services:
+  consul:
+    image: consul:1.15.4
+    platform: linux/arm64
+    container_name: consul
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+    healthcheck:
+      test: ["CMD-SHELL", "consul status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - flexds-net
+
+  flexds:
+    build:
+      context: ..
+      dockerfile: container/Containerfile
+    container_name: flexds
+    networks:
+      - flexds-net
+    environment:
+      - GOMAXPROCS=2
+    ports:
+      - "18000:18000" # ADS gRPC
+      - "19005:19005" # admin HTTP
+
+  envoy:
+    image: envoyproxy/envoy:distroless-v1.33.13
+    platform: linux/arm64
+    container_name: envoy
+    depends_on:
+      - flexds
+    volumes:
+      - ./envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
+    ports:
+      - "18080:18080" # proxy listener
+      - "19000:19000" # envoy admin
+    command:
+      - "-c"
+      - "/etc/envoy/bootstrap.yaml"
+      - "--log-level"
+      - "info"
+    networks:
+      - flexds-net
+
+networks:
+  flexds-net:
+    driver: bridge
