@@ -1,45 +1,48 @@
 package main
 
 import (
-"context"
-"flag"
-"fmt"
-"log"
-"net/http"
-"os"
-"os/signal"
-"sync"
-"syscall"
-"time"
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
-consulapi "github.com/hashicorp/consul/api"
-cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
-serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-"github.com/prometheus/client_golang/prometheus/promhttp"
+	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	consulapi "github.com/hashicorp/consul/api"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
-defaultConsulAddr = "localhost:8500"
-defaultAdsPort    = 18000
-defaultAdminPort  = 19005
+	defaultConsulAddr = "localhost:8500"
+	defaultAdsPort    = 18000
+	defaultAdminPort  = 19005
 )
 
 // Config holds the application configuration
 type Config struct {
-	ConsulAddr  string
-	ADSPort     int
-	AdminPort   int
-	WaitTimeSec int
+	ConsulAddr      string
+	ADSPort         int
+	AdminPort       int
+	WaitTimeSec     int
+	WatcherStrategy string // "immediate", "debounce", or "batch"
 }
 
 func main() {
 	var consulAddr string
 	var adsPort int
 	var adminPort int
+	var watcherStrategy string
 
 	flag.StringVar(&consulAddr, "consul", defaultConsulAddr, "consul HTTP address (host:port)")
 	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
 	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
+	flag.StringVar(&watcherStrategy, "watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
 	flag.Parse()
 
 	// Initialize metrics
@@ -92,10 +95,11 @@ func main() {
 
 	// Start Consul watch
 	config := &Config{
-		ConsulAddr:  consulAddr,
-		ADSPort:     adsPort,
-		AdminPort:   adminPort,
-		WaitTimeSec: 10,
+		ConsulAddr:      consulAddr,
+		ADSPort:         adsPort,
+		AdminPort:       adminPort,
+		WaitTimeSec:     2,
+		WatcherStrategy: watcherStrategy,
 	}
 
 	wg.Add(1)
@@ -119,7 +123,7 @@ func main() {
 		close(done)
 	}()
 
-	shutdownCtx, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 
 	select {
