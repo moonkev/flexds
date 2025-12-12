@@ -1,0 +1,14 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install --production
+
+COPY streaming.proto .
+COPY server.js .
+
+EXPOSE 9090
+
+CMD ["node", "server.js"]

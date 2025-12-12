@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package grpc_streaming;
+
+option go_package = "github.com/moonkev/flexds/grpc_streaming";
+
+service StreamingService {
+  // Server-streaming RPC: stream counter values
+  rpc CounterStream(CounterRequest) returns (stream CounterResponse);
+  
+  // Unary RPC for health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message CounterRequest {
+  int32 start = 1;
+  int32 count = 2;  // How many numbers to stream
+}
+
+message CounterResponse {
+  int32 value = 1;
+  string message = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+}

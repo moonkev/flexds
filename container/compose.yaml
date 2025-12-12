@@ -47,6 +47,33 @@ services:
     networks:
       - flexds-net
 
+  rest-service:
+    build:
+      context: ./rest-service
+      dockerfile: Dockerfile
+    container_name: rest-service
+    ports:
+      - "8080:8080"
+    networks:
+      - flexds-net
+    environment:
+      - FLASK_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  grpc-service:
+    build:
+      context: ./grpc-service
+      dockerfile: Dockerfile
+    container_name: grpc-service
+    ports:
+      - "9090:9090"
+    networks:
+      - flexds-net
+
 networks:
   flexds-net:
     driver: bridge
