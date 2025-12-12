@@ -19,7 +19,8 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/moonkev/flexds/config"
+	"github.com/moonkev/flexds/internal/model"
+	"github.com/moonkev/flexds/internal/server"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
@@ -29,11 +30,6 @@ var version uint64 = 1
 // RouteBuilder interface for dependency injection
 type RouteBuilder interface {
 	BuildRoutes(entry *consulapi.ServiceEntry) []interface{}
-}
-
-// MetricCounter interface for metrics
-type MetricCounter interface {
-	Inc()
 }
 
 // GetHealthyInstances uses the health API to fetch passing instances
@@ -51,7 +47,7 @@ func IsIPAddress(addr string) bool {
 }
 
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
-func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, nodeID string, routeBuilder RouteBuilder, metricsPushed MetricCounter) {
+func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, nodeID string, routeBuilder RouteBuilder) {
 	var clusters []types.Resource
 	var endpoints []types.Resource
 	var routes []types.Resource
@@ -137,10 +133,10 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		// Parse service routing patterns
 		routePatterns := routeBuilder.BuildRoutes(parsedForRouting)
 
-		// Convert patterns to routes - patterns are RoutePattern objects from config package
+		// Convert patterns to routes - patterns are RoutePattern objects from model package
 		for _, rpInterface := range routePatterns {
-			// Assert to config.RoutePattern struct
-			rp, ok := rpInterface.(config.RoutePattern)
+			// Assert to model.RoutePattern struct
+			rp, ok := rpInterface.(model.RoutePattern)
 			if !ok {
 				log.Printf("[BUILD SNAPSHOT] warning: failed to assert route pattern to RoutePattern type")
 				continue
@@ -278,7 +274,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 	} else {
 		log.Printf("[SNAPSHOT PUSHED] version=%s listeners=%d clusters=%d endpoints=%d routes=%d virtualHosts=%d",
 			snapVer, len(listeners), len(clusters), len(endpoints), len(routes), len(virtualHosts))
-		metricsPushed.Inc()
+		server.MetricSnapshotsPushed.Inc()
 
 		if err := cache.SetSnapshot(context.Background(), "ingress-gateway", snap); err != nil {
 			log.Printf("[SNAPSHOT STORE] error setting snapshot for ingress-gateway: %v", err)

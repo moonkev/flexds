@@ -15,6 +15,8 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	consulapi "github.com/hashicorp/consul/api"
+	"github.com/moonkev/flexds/internal/discovery/consul"
+	"github.com/moonkev/flexds/internal/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -23,15 +25,6 @@ const (
 	defaultAdsPort    = 18000
 	defaultAdminPort  = 19005
 )
-
-// Config holds the application configuration
-type Config struct {
-	ConsulAddr      string
-	ADSPort         int
-	AdminPort       int
-	WaitTimeSec     int
-	WatcherStrategy string // "immediate", "debounce", or "batch"
-}
 
 func main() {
 	var consulAddr string
@@ -46,7 +39,7 @@ func main() {
 	flag.Parse()
 
 	// Initialize metrics
-	InitMetrics()
+	server.InitMetrics()
 
 	log.Printf("starting control plane with blocking queries; consul=%s", consulAddr)
 
@@ -63,7 +56,7 @@ func main() {
 
 	// Create XDS server
 	log.Printf("creating XDS server...")
-	callbacks := &ServerCallbacks{}
+	callbacks := &server.ServerCallbacks{}
 	adsServer := serverv3.NewServer(context.Background(), snapshotCache, callbacks)
 	log.Printf("XDS server created")
 
@@ -75,7 +68,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		RunGRPC(ctx, adsServer, adsPort)
+		server.RunGRPC(ctx, adsServer, adsPort)
 	}()
 
 	// Setup admin/metrics HTTP server
@@ -94,7 +87,7 @@ func main() {
 	}()
 
 	// Start Consul watch
-	config := &Config{
+	config := &consul.Config{
 		ConsulAddr:      consulAddr,
 		ADSPort:         adsPort,
 		AdminPort:       adminPort,
@@ -105,7 +98,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		WatchConsulBlocking(ctx, consulClient, snapshotCache, config)
+		consul.WatchConsulBlocking(ctx, consulClient, snapshotCache, config)
 	}()
 
 	// Wait for shutdown signal

@@ -1,4 +1,4 @@
-package config
+package model
 
 // RoutePattern defines a single routing rule for a service
 type RoutePattern struct {

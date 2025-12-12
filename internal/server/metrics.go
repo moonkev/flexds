@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -6,13 +6,13 @@ import (
 
 // Prometheus metrics
 var (
-	metricSnapshotsPushed = prometheus.NewCounter(
+	MetricSnapshotsPushed = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "flexds_snapshots_pushed_total",
 			Help: "Total number of snapshots pushed to the cache",
 		},
 	)
-	metricServicesDiscovered = prometheus.NewGauge(
+	MetricServicesDiscovered = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "flexds_services_discovered",
 			Help: "Number of services discovered from Consul",
@@ -22,6 +22,6 @@ var (
 
 // InitMetrics registers Prometheus metrics
 func InitMetrics() {
-	prometheus.MustRegister(metricSnapshotsPushed)
-	prometheus.MustRegister(metricServicesDiscovered)
+	prometheus.MustRegister(MetricSnapshotsPushed)
+	prometheus.MustRegister(MetricServicesDiscovered)
 }

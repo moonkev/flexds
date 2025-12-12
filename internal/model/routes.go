@@ -1,12 +1,12 @@
-package config
+package model
 
 import (
 	"log"
 	"strconv"
 	"strings"
 
-	consulapi "github.com/hashicorp/consul/api"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	consulapi "github.com/hashicorp/consul/api"
 )
 
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns.
@@ -18,6 +18,7 @@ import (
 //   - route_N_header_value: header value to match (e.g., "py-web")
 //   - route_N_prefix_rewrite: what to rewrite the matched prefix to (e.g., "/")
 //   - route_N_hosts: comma-separated list of domains (e.g., "api.example.com,api2.example.com")
+//
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns
 func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 	svc := entry.Service.Service

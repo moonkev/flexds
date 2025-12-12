@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"time"
+
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -16,7 +18,6 @@ import (
 	listenerservice "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	"time"
 )
 
 // RunGRPC starts the gRPC XDS server
@@ -125,5 +126,5 @@ func (cb *ServerCallbacks) OnStreamDeltaRequest(streamID int64, req *discovery.D
 }
 
 func (cb *ServerCallbacks) OnStreamDeltaResponse(streamID int64, req *discovery.DeltaDiscoveryRequest, resp *discovery.DeltaDiscoveryResponse) {
-	log.Printf("[DELTA RESPONSE] streamID=%d nodeID=%s typeURL=%s", streamID, req.Node.Id, req.TypeUrl)
+	log.Printf("[DELTA RESPONSE] streamID=%d nodeID=%s typeURL=%s", streamID, req.Node.Id, resp.TypeUrl)
 }

@@ -1,4 +1,4 @@
-package main
+package consul
 
 import (
 	"context"
@@ -6,10 +6,20 @@ import (
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/moonkev/flexds/config"
-	"github.com/moonkev/flexds/watcher"
-	"github.com/moonkev/flexds/xds"
+	"github.com/moonkev/flexds/internal/discovery/consul/watcher"
+	"github.com/moonkev/flexds/internal/model"
+	"github.com/moonkev/flexds/internal/server"
+	"github.com/moonkev/flexds/internal/xds"
 )
+
+// Config holds the application configuration
+type Config struct {
+	ConsulAddr      string
+	ADSPort         int
+	AdminPort       int
+	WaitTimeSec     int
+	WatcherStrategy string // "immediate", "debounce", or "batch"
+}
 
 // WatchConsulBlocking watches for changes in Consul service catalog using the configured watcher strategy
 // strategy can be "immediate", "debounce", or "batch"
@@ -17,8 +27,8 @@ func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache ca
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {
 		log.Printf("[CONSUL HANDLER] processing %d services: %v", len(services), services)
-		metricServicesDiscovered.Set(float64(len(services)))
-		xds.BuildAndPushSnapshot(cache, client, services, "*", &routeBuilder{}, metricSnapshotsPushed)
+		server.MetricServicesDiscovered.Set(float64(len(services)))
+		xds.BuildAndPushSnapshot(cache, client, services, "*", &routeBuilder{})
 		return nil
 	}
 
@@ -50,7 +60,7 @@ type routeBuilder struct{}
 
 func (rb *routeBuilder) BuildRoutes(entry *consulapi.ServiceEntry) []interface{} {
 	// Parse routes from Consul metadata
-	routes := config.ParseServiceRoutes(entry)
+	routes := model.ParseServiceRoutes(entry)
 
 	// Convert to interface{} slice for interface compatibility
 	result := make([]interface{}, len(routes))
