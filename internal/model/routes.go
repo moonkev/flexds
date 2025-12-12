@@ -25,7 +25,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 	var routes []RoutePattern
 
 	// If no metadata, create a default route with wildcard domain (accepts any Host header)
-	if entry.Service.Meta == nil || len(entry.Service.Meta) == 0 {
+	if len(entry.Service.Meta) == 0 {
 		return []RoutePattern{{
 			Name:       svc + "-default",
 			MatchType:  "path",

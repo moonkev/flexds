@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -46,6 +47,21 @@ func IsIPAddress(addr string) bool {
 	return net.ParseIP(addr) != nil
 }
 
+// GetDNSRefreshRate extracts the dns_refresh_rate from service metadata
+// Returns the duration in seconds (default 60 seconds if not specified)
+func GetDNSRefreshRate(entry *consulapi.ServiceEntry) time.Duration {
+	if entry == nil || entry.Service == nil || entry.Service.Meta == nil {
+		return 60 * time.Second // default
+	}
+
+	if val, ok := entry.Service.Meta["dns_refresh_rate"]; ok {
+		if seconds, err := strconv.ParseInt(val, 10, 64); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return 60 * time.Second // default
+}
+
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
 func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, nodeID string, routeBuilder RouteBuilder) {
 	var clusters []types.Resource
@@ -70,38 +86,19 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		log.Printf("[BUILD SNAPSHOT] adding service %s with %d instances", svc, len(instances))
 
 		clusterName := svc
-
-		// Cluster (EDS)
-		cl := &cluster.Cluster{
-			Name:                 clusterName,
-			ConnectTimeout:       durationpb.New(2 * time.Second),
-			ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
-			EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
-				EdsConfig: &core.ConfigSource{
-					ResourceApiVersion: core.ApiVersion_V3,
-					ConfigSourceSpecifier: &core.ConfigSource_Ads{
-						Ads: &core.AggregatedConfigSource{},
-					},
-				},
-			},
-			LbPolicy:        cluster.Cluster_ROUND_ROBIN,
-			DnsLookupFamily: cluster.Cluster_V4_ONLY,
-		}
-		clusters = append(clusters, cl)
-
-		// Endpoints
-		lbs := make([]*endpoint.LbEndpoint, 0, len(instances))
 		var parsedForRouting *consulapi.ServiceEntry
 		parsedForRouting = instances[0]
+
+		// Endpoints - build load assignment with hostname and port
+		lbs := make([]*endpoint.LbEndpoint, 0, len(instances))
 
 		for _, e := range instances {
 			addr := e.Service.Address
 			if addr == "" {
 				addr = e.Node.Address
 			}
-			if addr != "" && !IsIPAddress(addr) && e.Node.Address != "" {
-				addr = e.Node.Address
-			}
+			// Only replace with node address if service address is empty
+			// (don't replace valid hostnames with node IP)
 			if addr == "" {
 				continue
 			}
@@ -129,6 +126,24 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 			Endpoints:   []*endpoint.LocalityLbEndpoints{{LbEndpoints: lbs}},
 		}
 		endpoints = append(endpoints, cla)
+
+		// Get DNS refresh rate from metadata (in seconds)
+		dnsRefreshRate := GetDNSRefreshRate(instances[0])
+
+		// Cluster (STRICT_DNS for hostname resolution)
+		// Load assignment provides the hostname and port for DNS resolution
+		cl := &cluster.Cluster{
+			Name:           clusterName,
+			ConnectTimeout: durationpb.New(2 * time.Second),
+			ClusterDiscoveryType: &cluster.Cluster_Type{
+				Type: cluster.Cluster_STRICT_DNS,
+			},
+			LoadAssignment:  cla,
+			LbPolicy:        cluster.Cluster_ROUND_ROBIN,
+			DnsLookupFamily: cluster.Cluster_V4_ONLY,
+			DnsRefreshRate:  durationpb.New(dnsRefreshRate),
+		}
+		clusters = append(clusters, cl)
 
 		// Parse service routing patterns
 		routePatterns := routeBuilder.BuildRoutes(parsedForRouting)

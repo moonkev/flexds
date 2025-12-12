@@ -1,8 +1,6 @@
-version: '3.8'
 services:
   consul:
     image: consul:1.15.4
-    platform: linux/arm64
     container_name: consul
     command: agent -dev -client=0.0.0.0
     ports:
@@ -30,7 +28,6 @@ services:
 
   envoy:
     image: envoyproxy/envoy:distroless-v1.33.13
-    platform: linux/arm64
     container_name: envoy
     depends_on:
       - flexds
@@ -47,11 +44,11 @@ services:
     networks:
       - flexds-net
 
-  rest-service:
+  rest-service-1:
     build:
       context: ./rest-service
       dockerfile: Dockerfile
-    container_name: rest-service
+    container_name: rest-service-1
     ports:
       - "8080:8080"
     networks:
@@ -64,13 +61,40 @@ services:
       timeout: 5s
       retries: 3
 
-  grpc-service:
+  rest-service-2:
+    build:
+      context: ./rest-service
+      dockerfile: Dockerfile
+    container_name: rest-service-2
+    ports:
+      - "8081:8080"
+    networks:
+      - flexds-net
+    environment:
+      - FLASK_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  grpc-service-1:
     build:
       context: ./grpc-service
       dockerfile: Dockerfile
-    container_name: grpc-service
+    container_name: grpc-service-1
     ports:
       - "9090:9090"
+    networks:
+      - flexds-net
+
+  grpc-service-2:
+    build:
+      context: ./grpc-service
+      dockerfile: Dockerfile
+    container_name: grpc-service-2
+    ports:
+      - "9091:9090"
     networks:
       - flexds-net
 

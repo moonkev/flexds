@@ -9,7 +9,7 @@ RUN apk add --no-cache ca-certificates git && \
 
 # Copy sources and build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags='-s -w' -o /out/flexds ./
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /out/flexds ./cmd/flexds
 
 FROM alpine:3.18
 RUN addgroup -S app && adduser -S app -G app
