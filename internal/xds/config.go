@@ -47,6 +47,23 @@ func IsIPAddress(addr string) bool {
 	return net.ParseIP(addr) != nil
 }
 
+// ShouldEnableHTTP2 checks if HTTP/2 should be enabled for this service
+// Reads from metadata field "http2" (values: "true" or "false")
+// Requires explicit configuration - no port-based detection since ports can be randomized
+func ShouldEnableHTTP2(entry *consulapi.ServiceEntry) bool {
+	if entry == nil || entry.Service == nil || entry.Service.Meta == nil {
+		return false
+	}
+
+	// Check explicit http2 metadata setting
+	if val, ok := entry.Service.Meta["http2"]; ok {
+		return val == "true"
+	}
+
+	// Default to false - HTTP/2 must be explicitly enabled via metadata
+	return false
+}
+
 // GetDNSRefreshRate extracts the dns_refresh_rate from service metadata
 // Returns the duration in seconds (default 60 seconds if not specified)
 func GetDNSRefreshRate(entry *consulapi.ServiceEntry) time.Duration {
@@ -143,6 +160,13 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 			DnsLookupFamily: cluster.Cluster_V4_ONLY,
 			DnsRefreshRate:  durationpb.New(dnsRefreshRate),
 		}
+
+		// Add HTTP/2 protocol options if service specifies http2 metadata or is detected as gRPC
+		if ShouldEnableHTTP2(instances[0]) {
+			log.Printf("[CLUSTER] service=%s configured with HTTP/2 support", svc)
+			cl.Http2ProtocolOptions = &core.Http2ProtocolOptions{}
+		}
+
 		clusters = append(clusters, cl)
 
 		// Parse service routing patterns
@@ -231,7 +255,9 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 
 	// Listener
 	hcmCfg := &hcm.HttpConnectionManager{
-		StatPrefix: "ingress_http",
+		StatPrefix:           "ingress_http",
+		CodecType:            hcm.HttpConnectionManager_AUTO,
+		Http2ProtocolOptions: &core.Http2ProtocolOptions{},
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
 				ConfigSource: &core.ConfigSource{

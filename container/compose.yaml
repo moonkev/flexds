@@ -19,7 +19,7 @@ services:
   consul-server-2:
     image: consul:1.15.4
     container_name: consul-server-2
-    command: agent -server -client=0.0.0.0 -bootstrap-expect=3 -node=consul-server-2 -retry-join=consul-server-1
+    command: agent -server -ui -client=0.0.0.0 -bootstrap-expect=3 -node=consul-server-2 -retry-join=consul-server-1
     ports:
       - "8501:8500"
       - "8601:8600/udp"
@@ -38,7 +38,7 @@ services:
   consul-server-3:
     image: consul:1.15.4
     container_name: consul-server-3
-    command: agent -server -client=0.0.0.0 -bootstrap-expect=3 -node=consul-server-3 -retry-join=consul-server-1
+    command: agent -server -ui -client=0.0.0.0 -bootstrap-expect=3 -node=consul-server-3 -retry-join=consul-server-1
     ports:
       - "8502:8500"
       - "8602:8600/udp"
