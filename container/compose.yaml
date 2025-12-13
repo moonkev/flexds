@@ -90,7 +90,7 @@ services:
       - consul-agent
 
   envoy:
-    image: envoyproxy/envoy:distroless-v1.33.13
+    image: envoyproxy/envoy:v1.36.4
     container_name: envoy
     depends_on:
       - flexds
@@ -110,7 +110,7 @@ services:
   rest-service-1:
     build:
       context: ./rest-service
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: rest-service-1
     ports:
       - "8080:8080"
@@ -118,16 +118,23 @@ services:
       - flexds-net
     environment:
       - FLASK_ENV=production
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=hello-service
+      - SERVICE_ID=hello-service-1:8080
+      - SERVICE_PORT=8080
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+    depends_on:
+      - consul-agent
 
   rest-service-2:
     build:
       context: ./rest-service
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: rest-service-2
     ports:
       - "8081:8080"
@@ -135,31 +142,52 @@ services:
       - flexds-net
     environment:
       - FLASK_ENV=production
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=hello-service
+      - SERVICE_ID=hello-service-2:8080
+      - SERVICE_PORT=8080
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+    depends_on:
+      - consul-agent
 
   grpc-service-1:
     build:
       context: ./grpc-service
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: grpc-service-1
     ports:
       - "9090:9090"
     networks:
       - flexds-net
+    environment:
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=grpc-service
+      - SERVICE_ID=grpc-service-1:9090
+    depends_on:
+      - consul-agent
 
   grpc-service-2:
     build:
       context: ./grpc-service
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: grpc-service-2
     ports:
       - "9091:9090"
     networks:
       - flexds-net
+    environment:
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=grpc-service
+      - SERVICE_ID=grpc-service-2:9090
+    depends_on:
+      - consul-agent
 
 networks:
   flexds-net:

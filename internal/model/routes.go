@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
@@ -85,8 +84,16 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 		if v, ok := routeConfig["header_value"]; ok {
 			rp.HeaderValue = v
 		}
+		// Support legacy prefix_rewrite
 		if v, ok := routeConfig["prefix_rewrite"]; ok {
 			rp.PrefixRewrite = v
+		}
+		// Support regex_rewrite with pattern and replacement
+		if v, ok := routeConfig["regex_rewrite"]; ok {
+			rp.RegexRewrite = v
+		}
+		if v, ok := routeConfig["regex_replacement"]; ok {
+			rp.RegexReplacement = v
 		}
 		if v, ok := routeConfig["hosts"]; ok {
 			hosts := strings.Split(v, ",")
@@ -107,8 +114,8 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 		}
 
 		routes = append(routes, rp)
-		log.Printf("[PARSE ROUTES] service=%s route=%s match_type=%s path=%s header=%s:%s hosts=%v",
-			svc, rp.Name, rp.MatchType, rp.PathPrefix, rp.HeaderName, rp.HeaderValue, rp.Hosts)
+		log.Printf("[PARSE ROUTES] service=%s route=%s match_type=%s path=%s prefix_rewrite=%q header=%s:%s hosts=%v",
+			svc, rp.Name, rp.MatchType, rp.PathPrefix, rp.PrefixRewrite, rp.HeaderName, rp.HeaderValue, rp.Hosts)
 	}
 
 	// If still no routes, return default
@@ -122,59 +129,4 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 	}
 
 	return routes
-}
-
-// ParseServiceRouting reads service metadata and tags to generate routing rules
-// DEPRECATED: Use ParseServiceRoutes instead
-func ParseServiceRouting(entry *consulapi.ServiceEntry) (pathPrefix string, hosts []string, prefixRewrite string, headerMatchers []*route.HeaderMatcher) {
-	// defaults
-	svc := entry.Service.Service
-	pathPrefix = "/svc/" + svc
-	hosts = []string{svc + ".service.consul"}
-
-	if entry.Service.Meta != nil {
-		if v, ok := entry.Service.Meta["route.path_prefix"]; ok && v != "" {
-			pathPrefix = v
-		}
-		if v, ok := entry.Service.Meta["route.host"]; ok && v != "" {
-			// comma-separated
-			parts := strings.Split(v, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					hosts = append(hosts, p)
-				}
-			}
-		}
-		if v, ok := entry.Service.Meta["route.strip_prefix"]; ok && (strings.ToLower(v) == "true" || v == "1") {
-			prefixRewrite = "/"
-		}
-		if v, ok := entry.Service.Meta["route.prefix_rewrite"]; ok && v != "" {
-			prefixRewrite = v
-		}
-	}
-
-	// parse tags for header matchers
-	for _, t := range entry.Service.Tags {
-		if strings.HasPrefix(t, "route-header:") {
-			rest := strings.TrimPrefix(t, "route-header:")
-			// expecting Name=Value
-			parts := strings.SplitN(rest, "=", 2)
-			if len(parts) == 2 {
-				name := strings.TrimSpace(parts[0])
-				val := strings.TrimSpace(parts[1])
-				if name != "" && val != "" {
-					hm := &route.HeaderMatcher{
-						Name: name,
-						HeaderMatchSpecifier: &route.HeaderMatcher_ExactMatch{
-							ExactMatch: val,
-						},
-					}
-					headerMatchers = append(headerMatchers, hm)
-				}
-			}
-		}
-	}
-
-	return
 }

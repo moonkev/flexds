@@ -1,38 +1,113 @@
 #!/usr/bin/env python3
 """
 Minimal REST service for testing through Envoy proxy.
-Serves simple endpoints on port 8080.
+Serves simple endpoints using FastAPI.
+Automatically registers with Consul on startup.
 """
-import json
 import logging
-from flask import Flask, jsonify, request
+import os
+import socket
+import httpx
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# Consul configuration
+CONSUL_HOST = os.getenv('CONSUL_HOST', 'consul-agent')
+CONSUL_PORT = int(os.getenv('CONSUL_PORT', 8500))
+CONSUL_URL = f'http://{CONSUL_HOST}:{CONSUL_PORT}'
+SERVICE_NAME = os.getenv('SERVICE_NAME', 'hello-service')
+SERVICE_PORT = int(os.getenv('SERVICE_PORT', 8080))
+SERVICE_ID = os.getenv('SERVICE_ID', f'{SERVICE_NAME}:{SERVICE_PORT}')
+CONTAINER_NAME = os.getenv('HOSTNAME', socket.gethostname())
 
-@app.route('/health', methods=['GET'])
-def health():
+async def register_with_consul():
+    """Register this service with Consul."""
+    registration = {
+        "ID": SERVICE_ID,
+        "Name": SERVICE_NAME,
+        "Address": CONTAINER_NAME,
+        "Port": SERVICE_PORT,
+        "Meta": {
+            "dns_refresh_rate": "30",
+            "route_1_match_type": "path",
+            "route_1_path_prefix": "/hello-service/",
+            "route_1_prefix_rewrite": "/",
+            "route_2_match_type": "header",
+            "route_2_header_name": "X-Service",
+            "route_2_header_value": "hello-service",
+            "route_2_path_prefix": "/",
+            "route_2_prefix_rewrite": "/",
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f'{CONSUL_URL}/v1/agent/service/register',
+                json=registration,
+                timeout=5
+            )
+            if response.status_code == 200:
+                logger.info(f"Successfully registered {SERVICE_ID} with Consul")
+            else:
+                logger.error(f"Failed to register with Consul: {response.status_code} {response.text}")
+    except Exception as e:
+        logger.error(f"Error registering with Consul: {e}")
+
+async def deregister_from_consul():
+    """Deregister this service from Consul on shutdown."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f'{CONSUL_URL}/v1/agent/service/deregister/{SERVICE_ID}',
+                timeout=5
+            )
+            if response.status_code == 200:
+                logger.info(f"Successfully deregistered {SERVICE_ID} from Consul")
+    except Exception as e:
+        logger.error(f"Error deregistering from Consul: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Manage service startup and shutdown.
+    Register on startup, deregister on shutdown.
+    """
+    logger.info(f"Starting REST service on port {SERVICE_PORT}")
+    await register_with_consul()
+    yield
+    await deregister_from_consul()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get('/health')
+async def health():
     """Health check endpoint."""
-    return jsonify({'status': 'ok'}), 200
+    return JSONResponse({'status': 'ok'}, status_code=200)
 
-@app.route('/hello', methods=['GET'])
-def hello():
+@app.get('/hello')
+async def hello(name: str = Query('World')):
     """Simple hello endpoint with optional name parameter."""
-    name = request.args.get('name', 'World')
     message = f'Hello {name} from REST service'
-    return jsonify({'message': message, 'service': 'rest', 'name': name}), 200
+    return JSONResponse({
+        'message': message,
+        'service': 'rest',
+        'name': name
+    }, status_code=200)
 
-@app.route('/info', methods=['GET'])
-def info():
+@app.get('/info')
+async def info():
     """Service info endpoint."""
-    return jsonify({
+    return JSONResponse({
         'name': 'rest-service',
         'version': '1.0.0',
         'endpoints': ['/health', '/hello', '/info']
-    }), 200
+    }, status_code=200)
 
 if __name__ == '__main__':
-    logger.info("Starting REST service on port 8080")
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=SERVICE_PORT)

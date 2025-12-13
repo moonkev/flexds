@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -15,6 +14,7 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -40,11 +40,6 @@ func GetHealthyInstances(client *consulapi.Client, service string) ([]*consulapi
 		return nil, err
 	}
 	return entries, nil
-}
-
-// IsIPAddress checks if the given string is a valid IPv4 or IPv6 address
-func IsIPAddress(addr string) bool {
-	return net.ParseIP(addr) != nil
 }
 
 // ShouldEnableHTTP2 checks if HTTP/2 should be enabled for this service
@@ -186,12 +181,25 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 			headerName := rp.HeaderName
 			headerValue := rp.HeaderValue
 			prefixRewrite := rp.PrefixRewrite
+			regexRewrite := rp.RegexRewrite
+			regexReplacement := rp.RegexReplacement
 
 			ra := &route.RouteAction{
 				ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
 			}
-			if prefixRewrite != "" {
+
+			// Apply rewrite: regex_rewrite takes priority, then legacy prefix_rewrite
+			if regexRewrite != "" {
+				ra.RegexRewrite = &matcher.RegexMatchAndSubstitute{
+					Pattern: &matcher.RegexMatcher{
+						Regex: regexRewrite,
+					},
+					Substitution: regexReplacement,
+				}
+				log.Printf("[ROUTE] service=%s regex_rewrite(pattern=%q substitution=%q)", svc, regexRewrite, regexReplacement)
+			} else if prefixRewrite != "" {
 				ra.PrefixRewrite = prefixRewrite
+				log.Printf("[ROUTE] service=%s prefix_rewrite=%q", svc, prefixRewrite)
 			}
 
 			routeMatch := &route.RouteMatch{
