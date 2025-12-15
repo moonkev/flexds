@@ -41,6 +41,10 @@ async def register_with_consul():
             "route_2_header_value": "hello-service",
             "route_2_path_prefix": "/",
             "route_2_prefix_rewrite": "/",
+            "route_3_match_type": "path",
+            "route_3_path_prefix": "/regex-service",
+            "route_3_regex_rewrite": "^/regex-service/(?:/(.*))?$",
+            "route_3_regex_replacement": "/\\1"
         }
     }
     
