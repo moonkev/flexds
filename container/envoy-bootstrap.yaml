@@ -1,5 +1,5 @@
 node:
-  id: ingress-gateway
+  id: "ingress-gateway"
   cluster: ingress-gateway
 
 static_resources:

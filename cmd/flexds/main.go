@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -56,7 +57,7 @@ func main() {
 
 	// Create XDS server
 	log.Printf("creating XDS server...")
-	callbacks := &server.ServerCallbacks{}
+	callbacks := &server.ServerCallbacks{Cache: snapshotCache}
 	adsServer := serverv3.NewServer(context.Background(), snapshotCache, callbacks)
 	log.Printf("XDS server created")
 
@@ -74,23 +75,21 @@ func main() {
 	// Setup admin/metrics HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	admin := &http.Server{Addr: fmt.Sprintf(":%d", adminPort), Handler: mux}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		log.Printf("starting admin http on :%d", adminPort)
-		if err := admin.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := admin.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("admin server failed: %v", err)
 		}
 	}()
 
 	// Start Consul watch
-	config := &consul.Config{
+	config := &consul.ConsulConfig{
 		ConsulAddr:      consulAddr,
-		ADSPort:         adsPort,
-		AdminPort:       adminPort,
 		WaitTimeSec:     2,
 		WatcherStrategy: watcherStrategy,
 	}

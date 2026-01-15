@@ -13,22 +13,20 @@ import (
 )
 
 // Config holds the application configuration
-type Config struct {
+type ConsulConfig struct {
 	ConsulAddr      string
-	ADSPort         int
-	AdminPort       int
 	WaitTimeSec     int
 	WatcherStrategy string // "immediate", "debounce", or "batch"
 }
 
 // WatchConsulBlocking watches for changes in Consul service catalog using the configured watcher strategy
 // strategy can be "immediate", "debounce", or "batch"
-func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache cachev3.SnapshotCache, cfg *Config) {
+func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache cachev3.SnapshotCache, cfg *ConsulConfig) {
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {
 		log.Printf("[CONSUL HANDLER] processing %d services: %v", len(services), services)
 		server.MetricServicesDiscovered.Set(float64(len(services)))
-		xds.BuildAndPushSnapshot(cache, client, services, "*", &routeBuilder{})
+		xds.BuildAndPushSnapshot(cache, client, services, &routeBuilder{})
 		return nil
 	}
 

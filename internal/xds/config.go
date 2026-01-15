@@ -75,7 +75,7 @@ func GetDNSRefreshRate(entry *consulapi.ServiceEntry) time.Duration {
 }
 
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
-func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, nodeID string, routeBuilder RouteBuilder) {
+func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, routeBuilder RouteBuilder) {
 	var clusters []types.Resource
 	var endpoints []types.Resource
 	var routes []types.Resource
@@ -156,7 +156,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 			DnsRefreshRate:  durationpb.New(dnsRefreshRate),
 		}
 
-		// Add HTTP/2 protocol options if service specifies http2 metadata or is detected as gRPC
+		// Add HTTP/2 protocol options if the service specifies http2 metadata or is detected as gRPC
 		if ShouldEnableHTTP2(instances[0]) {
 			log.Printf("[CLUSTER] service=%s configured with HTTP/2 support", svc)
 			cl.Http2ProtocolOptions = &core.Http2ProtocolOptions{}
@@ -225,7 +225,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		}
 	}
 
-	// Create single virtual host
+	// Create a single virtual host
 	var virtualHosts []*route.VirtualHost
 	if len(allRoutes) > 0 {
 		vhHost := &route.VirtualHost{
@@ -236,7 +236,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		virtualHosts = append(virtualHosts, vhHost)
 	}
 
-	// If no services, push empty snapshot
+	// If no services, push an empty snapshot
 	if len(clusters) == 0 {
 		log.Printf("[BUILD SNAPSHOT] no services with healthy instances, pushing empty snapshot")
 		snap, err := cachev3.NewSnapshot(fmt.Sprintf("%d", atomic.AddUint64(&version, 1)), map[resource.Type][]types.Resource{})
@@ -244,11 +244,15 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 			log.Printf("error creating empty snapshot: %v", err)
 			return
 		}
-		if err := cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
-			log.Printf("error setting empty snapshot: %v", err)
+		err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
+		if err != nil {
+			log.Printf("[SNAPSHOT STORE] error setting empty reference snapshot: %v", err)
 		}
-		if err := cache.SetSnapshot(context.Background(), "ingress-gateway", snap); err != nil {
-			log.Printf("[SNAPSHOT STORE] error setting empty snapshot for ingress-gateway: %v", err)
+		nodeIDs := cache.GetStatusKeys()
+		for _, nodeID := range nodeIDs {
+			if err := cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
+				log.Printf("[SNAPSHOT STORE] error setting empty snapshot for %s: %v", nodeID, err)
+			}
 		}
 		log.Printf("[SNAPSHOT PUSHED] empty snapshot")
 		return
@@ -313,34 +317,26 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		resource.RouteType:    routes,
 		resource.ListenerType: listeners,
 	})
+
 	if err != nil {
 		log.Printf("error creating snapshot: %v", err)
 		return
 	}
 
-	if err := cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
-		log.Printf("error setting snapshot: %v", err)
-	} else {
-		log.Printf("[SNAPSHOT PUSHED] version=%s listeners=%d clusters=%d endpoints=%d routes=%d virtualHosts=%d",
-			snapVer, len(listeners), len(clusters), len(endpoints), len(routes), len(virtualHosts))
-		server.MetricSnapshotsPushed.Inc()
+	err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
+	if err != nil {
+		log.Printf("[SNAPSHOT STORE] error setting reference snapshot: %v", err)
+	}
+	nodeIDs := cache.GetStatusKeys()
+	log.Printf("[DEBUG]Node IDs: %s", nodeIDs)
 
-		if err := cache.SetSnapshot(context.Background(), "ingress-gateway", snap); err != nil {
-			log.Printf("[SNAPSHOT STORE] error setting snapshot for ingress-gateway: %v", err)
-		}
-
-		retrievedSnap, err := cache.GetSnapshot(nodeID)
+	for _, nodeID := range nodeIDs {
+		err = cache.SetSnapshot(context.Background(), nodeID, snap)
 		if err != nil {
-			log.Printf("[SNAPSHOT VERIFY] ERROR retrieving snapshot: %v", err)
-		} else if retrievedSnap == nil {
-			log.Printf("[SNAPSHOT VERIFY] WARNING: snapshot is nil after SetSnapshot")
-		} else {
-			log.Printf("[SNAPSHOT VERIFY] OK: snapshot retrieved successfully - version=%s listeners=%v clusters=%v endpoints=%v routes=%v",
-				retrievedSnap.GetVersion(resource.ListenerType),
-				len(retrievedSnap.GetResources(resource.ListenerType)),
-				len(retrievedSnap.GetResources(resource.ClusterType)),
-				len(retrievedSnap.GetResources(resource.EndpointType)),
-				len(retrievedSnap.GetResources(resource.RouteType)))
+			log.Printf("[SNAPSHOT STORE] error setting snapshot for %s: %v", nodeID, err)
 		}
 	}
+	log.Printf("[SNAPSHOT PUSHED] version=%s listeners=%d clusters=%d endpoints=%d routes=%d virtualHosts=%d",
+		snapVer, len(listeners), len(clusters), len(endpoints), len(routes), len(virtualHosts))
+	server.MetricSnapshotsPushed.Inc()
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 
+	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
@@ -70,7 +71,10 @@ func RunGRPC(ctx context.Context, adsServer serverv3.Server, port int) {
 }
 
 // ServerCallbacks implements the Callbacks interface for logging client events
-type ServerCallbacks struct{}
+type ServerCallbacks struct {
+	serverv3.CallbackFuncs
+	Cache cachev3.SnapshotCache
+}
 
 func (cb *ServerCallbacks) OnStreamOpen(ctx context.Context, streamID int64, typeURL string) error {
 	log.Printf("[STREAM OPEN] streamID=%d typeURL=%s - callback fired", streamID, typeURL)
@@ -84,9 +88,16 @@ func (cb *ServerCallbacks) OnStreamClosed(streamID int64, node *core.Node) {
 func (cb *ServerCallbacks) OnStreamRequest(streamID int64, req *discovery.DiscoveryRequest) error {
 	log.Printf("[STREAM REQUEST] streamID=%d nodeID=%s typeURL=%s resourceNames=%v responseNonce=%s versionInfo=%s",
 		streamID, req.Node.Id, req.TypeUrl, req.ResourceNames, req.ResponseNonce, req.VersionInfo)
-
-	// Debug: indicate we received the request and the server should look up resources
-	log.Printf("[STREAM REQUEST DEBUG] server should now retrieve resources for nodeID=%s typeURL=%s from cache", req.Node.Id, req.TypeUrl)
+	snapshot, err := cb.Cache.GetSnapshot("__REFERENCE_SNAPSHOT__")
+	if err != nil {
+		log.Printf("[STREAM OPEN] error fetching reference snapshot: %v", err)
+		return err
+	}
+	err = cb.Cache.SetSnapshot(context.Background(), req.Node.Id, snapshot)
+	if err != nil {
+		log.Printf("[STREAM OPEN] error setting snapshot for node %s: %v", req.Node.Id, err)
+		return err
+	}
 	return nil
 }
 
@@ -98,17 +109,6 @@ func (cb *ServerCallbacks) OnStreamResponse(ctx context.Context, streamID int64,
 		log.Printf("[STREAM RESPONSE] streamID=%d nodeID=%s typeURL=%s response=nil",
 			streamID, req.Node.Id, req.TypeUrl)
 	}
-}
-
-func (cb *ServerCallbacks) OnFetchRequest(ctx context.Context, req *discovery.DiscoveryRequest) error {
-	log.Printf("[FETCH REQUEST] nodeID=%s typeURL=%s resourceNames=%v",
-		req.Node.Id, req.TypeUrl, req.ResourceNames)
-	return nil
-}
-
-func (cb *ServerCallbacks) OnFetchResponse(req *discovery.DiscoveryRequest, resp *discovery.DiscoveryResponse) {
-	log.Printf("[FETCH RESPONSE] nodeID=%s typeURL=%s resources=%d",
-		req.Node.Id, req.TypeUrl, len(resp.Resources))
 }
 
 func (cb *ServerCallbacks) OnDeltaStreamOpen(ctx context.Context, streamID int64, typeURL string) error {

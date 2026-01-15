@@ -89,19 +89,41 @@ services:
     depends_on:
       - consul-agent
 
-  envoy:
+  envoy-proxy-1:
     image: envoyproxy/envoy:v1.36.4
-    container_name: envoy
+    container_name: envoy-proxy-1
     depends_on:
       - flexds
     volumes:
       - ./envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
-      - "18080:18080" # proxy listener
-      - "19000:19000" # envoy admin
+      - "18080:18080"
+      - "19000:19000"
     command:
       - "-c"
       - "/etc/envoy/bootstrap.yaml"
+      - "--service-node"
+      - "envoy-proxy-1"
+      - "--log-level"
+      - "info"
+    networks:
+      - flexds-net
+
+  envoy-proxy-2:
+    image: envoyproxy/envoy:v1.36.4
+    container_name: envoy-proxy-2
+    depends_on:
+      - flexds
+    volumes:
+      - ./envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
+    ports:
+      - "28080:18080"
+      - "29000:19000"
+    command:
+      - "-c"
+      - "/etc/envoy/bootstrap.yaml"
+      - "--service-node"
+      - "envoy-proxy-2"
       - "--log-level"
       - "info"
     networks:
