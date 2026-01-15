@@ -1,4 +1,4 @@
-package model
+package xds
 
 // RoutePattern defines a single routing rule for a service
 type RoutePattern struct {

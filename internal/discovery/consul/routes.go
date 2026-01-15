@@ -1,4 +1,4 @@
-package model
+package consul
 
 import (
 	"log"
@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	consulapi "github.com/hashicorp/consul/api"
+	"github.com/moonkev/flexds/internal/xds"
 )
 
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns.
@@ -19,13 +20,13 @@ import (
 //   - route_N_hosts: comma-separated list of domains (e.g., "api.example.com,api2.example.com")
 //
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns
-func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
+func ParseServiceRoutes(entry *consulapi.ServiceEntry) []xds.RoutePattern {
 	svc := entry.Service.Service
-	var routes []RoutePattern
+	var routes []xds.RoutePattern
 
 	// If no metadata, create a default route with wildcard domain (accepts any Host header)
 	if len(entry.Service.Meta) == 0 {
-		return []RoutePattern{{
+		return []xds.RoutePattern{{
 			Name:       svc + "-default",
 			MatchType:  "path",
 			PathPrefix: "/svc/" + svc,
@@ -51,7 +52,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 
 	// If no numbered routes, create default
 	if len(routeMap) == 0 {
-		return []RoutePattern{{
+		return []xds.RoutePattern{{
 			Name:       svc + "-default",
 			MatchType:  "path",
 			PathPrefix: "/svc/" + svc,
@@ -67,7 +68,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 			continue
 		}
 
-		rp := RoutePattern{
+		rp := xds.RoutePattern{
 			Name:      svc + "-route" + routeNumStr,
 			MatchType: "path", // default
 		}
@@ -120,7 +121,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []RoutePattern {
 
 	// If still no routes, return default
 	if len(routes) == 0 {
-		routes = []RoutePattern{{
+		routes = []xds.RoutePattern{{
 			Name:       svc + "-default",
 			MatchType:  "path",
 			PathPrefix: "/svc/" + svc,

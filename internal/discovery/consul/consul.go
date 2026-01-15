@@ -7,7 +7,6 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/moonkev/flexds/internal/discovery/consul/watcher"
-	"github.com/moonkev/flexds/internal/model"
 	"github.com/moonkev/flexds/internal/server"
 	"github.com/moonkev/flexds/internal/xds"
 )
@@ -58,7 +57,7 @@ type routeBuilder struct{}
 
 func (rb *routeBuilder) BuildRoutes(entry *consulapi.ServiceEntry) []interface{} {
 	// Parse routes from Consul metadata
-	routes := model.ParseServiceRoutes(entry)
+	routes := ParseServiceRoutes(entry)
 
 	// Convert to interface{} slice for interface compatibility
 	result := make([]interface{}, len(routes))

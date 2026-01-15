@@ -20,10 +20,9 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/moonkev/flexds/internal/model"
 	"github.com/moonkev/flexds/internal/server"
-	anypb "google.golang.org/protobuf/types/known/anypb"
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 var version uint64 = 1
@@ -170,7 +169,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		// Convert patterns to routes - patterns are RoutePattern objects from model package
 		for _, rpInterface := range routePatterns {
 			// Assert to model.RoutePattern struct
-			rp, ok := rpInterface.(model.RoutePattern)
+			rp, ok := rpInterface.(RoutePattern)
 			if !ok {
 				log.Printf("[BUILD SNAPSHOT] warning: failed to assert route pattern to RoutePattern type")
 				continue
