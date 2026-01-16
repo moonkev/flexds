@@ -25,7 +25,16 @@ func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache ca
 	handler := func(services []string) error {
 		log.Printf("[CONSUL HANDLER] processing %d services: %v", len(services), services)
 		server.MetricServicesDiscovered.Set(float64(len(services)))
-		xds.BuildAndPushSnapshot(cache, client, services, &routeBuilder{})
+		entryMap := make(map[string][]*consulapi.ServiceEntry)
+		for _, svc := range services {
+			entries, _, err := client.Health().Service(svc, "", true, nil)
+			if err != nil {
+				log.Printf("[CONSUL HANDLER] error fetching healthy entires for service %s: %v", svc, err)
+			}
+			entryMap[svc] = entries
+		}
+
+		xds.BuildAndPushSnapshot(cache, entryMap, &routeBuilder{})
 		return nil
 	}
 

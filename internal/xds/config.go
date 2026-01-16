@@ -32,15 +32,6 @@ type RouteBuilder interface {
 	BuildRoutes(entry *consulapi.ServiceEntry) []interface{}
 }
 
-// GetHealthyInstances uses the health API to fetch passing instances
-func GetHealthyInstances(client *consulapi.Client, service string) ([]*consulapi.ServiceEntry, error) {
-	entries, _, err := client.Health().Service(service, "", true, nil)
-	if err != nil {
-		return nil, err
-	}
-	return entries, nil
-}
-
 // ShouldEnableHTTP2 checks if HTTP/2 should be enabled for this service
 // Reads from metadata field "http2" (values: "true" or "false")
 // Requires explicit configuration - no port-based detection since ports can be randomized
@@ -74,21 +65,16 @@ func GetDNSRefreshRate(entry *consulapi.ServiceEntry) time.Duration {
 }
 
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
-func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client, services []string, routeBuilder RouteBuilder) {
+func BuildAndPushSnapshot(cache cachev3.SnapshotCache, entryMap map[string][]*consulapi.ServiceEntry, routeBuilder RouteBuilder) {
 	var clusters []types.Resource
 	var endpoints []types.Resource
 	var routes []types.Resource
 	var listeners []types.Resource
 	allRoutes := make([]*route.Route, 0)
 
-	log.Printf("[BUILD SNAPSHOT] processing %d services", len(services))
+	log.Printf("[BUILD SNAPSHOT] processing %d services", len(entryMap))
 
-	for _, svc := range services {
-		instances, err := GetHealthyInstances(client, svc)
-		if err != nil {
-			log.Printf("error getting instances for %s: %v", svc, err)
-			continue
-		}
+	for svc, instances := range entryMap {
 		if len(instances) == 0 {
 			log.Printf("[BUILD SNAPSHOT] service %s has no healthy instances", svc)
 			continue
@@ -166,7 +152,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, client *consulapi.Client,
 		// Parse service routing patterns
 		routePatterns := routeBuilder.BuildRoutes(parsedForRouting)
 
-		// Convert patterns to routes - patterns are RoutePattern objects from model package
+		// Convert patterns to routes - patterns are RoutePattern objects
 		for _, rpInterface := range routePatterns {
 			// Assert to model.RoutePattern struct
 			rp, ok := rpInterface.(RoutePattern)
