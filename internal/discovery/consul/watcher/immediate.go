@@ -36,7 +36,7 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 		}
 		queryOpts = queryOpts.WithContext(ctx)
 
-		services, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
+		serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Printf("[WATCHER:IMMEDIATE] stopping, context cancelled")
@@ -54,7 +54,11 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 		log.Printf("[WATCHER:IMMEDIATE] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
 		lastIndex = meta.LastIndex
 
-		svcList := filterServices(services)
+		// Extract service names from the map keys
+		svcList := make([]string, 0, len(serviceMapping))
+		for serviceName := range serviceMapping {
+			svcList = append(svcList, serviceName)
+		}
 		log.Printf("[WATCHER:IMMEDIATE] found %d services: %v", len(svcList), svcList)
 
 		if err := w.cfg.Handler(svcList); err != nil {

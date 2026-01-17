@@ -28,7 +28,7 @@ func NewBatchWatcher(cfg *WatcherConfig, maxBatchSize int, batchTimeout time.Dur
 func (w *BatchWatcher) Watch(ctx context.Context) error {
 	var lastIndex uint64
 	var batchCount int
-	var latestServices []string
+	var services []string
 
 	batchTimer := time.NewTimer(0)
 	batchTimer.Stop()
@@ -42,8 +42,8 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 
 		case <-batchTimer.C:
 			if batchCount > 0 {
-				log.Printf("[WATCHER:BATCH] batch timeout, applying %d changes with %d services", batchCount, len(latestServices))
-				if err := w.cfg.Handler(latestServices); err != nil {
+				log.Printf("[WATCHER:BATCH] batch timeout, applying %d changes with %d services", batchCount, len(services))
+				if err := w.cfg.Handler(services); err != nil {
 					log.Printf("[WATCHER:BATCH] handler error: %v", err)
 				}
 				batchCount = 0
@@ -57,7 +57,7 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 			}
 			queryOpts = queryOpts.WithContext(ctx)
 
-			services, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
+			serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 			if err != nil {
 				if ctx.Err() != nil {
 					log.Printf("[WATCHER:BATCH] stopping, context cancelled")
@@ -75,7 +75,12 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 
 			log.Printf("[WATCHER:BATCH] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
 			lastIndex = meta.LastIndex
-			latestServices = filterServices(services)
+
+			// Extract service names from the map keys
+			services = make([]string, 0, len(serviceMapping))
+			for serviceName := range serviceMapping {
+				services = append(services, serviceName)
+			}
 			batchCount++
 
 			log.Printf("[WATCHER:BATCH] change detected, batch count: %d/%d", batchCount, w.maxBatchSize)
@@ -83,7 +88,7 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 			if batchCount >= w.maxBatchSize {
 				// Batch is full - apply immediately
 				log.Printf("[WATCHER:BATCH] batch limit reached, applying snapshot")
-				if err := w.cfg.Handler(latestServices); err != nil {
+				if err := w.cfg.Handler(services); err != nil {
 					log.Printf("[WATCHER:BATCH] handler error: %v", err)
 				}
 				batchCount = 0

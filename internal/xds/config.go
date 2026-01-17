@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -19,7 +18,7 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	consulapi "github.com/hashicorp/consul/api"
+	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/server"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -27,88 +26,43 @@ import (
 
 var version uint64 = 1
 
-// RouteBuilder interface for dependency injection
-type RouteBuilder interface {
-	BuildRoutes(entry *consulapi.ServiceEntry) []interface{}
-}
-
-// ShouldEnableHTTP2 checks if HTTP/2 should be enabled for this service
-// Reads from metadata field "http2" (values: "true" or "false")
-// Requires explicit configuration - no port-based detection since ports can be randomized
-func ShouldEnableHTTP2(entry *consulapi.ServiceEntry) bool {
-	if entry == nil || entry.Service == nil || entry.Service.Meta == nil {
-		return false
-	}
-
-	// Check explicit http2 metadata setting
-	if val, ok := entry.Service.Meta["http2"]; ok {
-		return val == "true"
-	}
-
-	// Default to false - HTTP/2 must be explicitly enabled via metadata
-	return false
-}
-
-// GetDNSRefreshRate extracts the dns_refresh_rate from service metadata
-// Returns the duration in seconds (default 60 seconds if not specified)
-func GetDNSRefreshRate(entry *consulapi.ServiceEntry) time.Duration {
-	if entry == nil || entry.Service == nil || entry.Service.Meta == nil {
-		return 60 * time.Second // default
-	}
-
-	if val, ok := entry.Service.Meta["dns_refresh_rate"]; ok {
-		if seconds, err := strconv.ParseInt(val, 10, 64); err == nil && seconds > 0 {
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return 60 * time.Second // default
-}
-
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
-func BuildAndPushSnapshot(cache cachev3.SnapshotCache, entryMap map[string][]*consulapi.ServiceEntry, routeBuilder RouteBuilder) {
+func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.DiscoveredService) {
 	var clusters []types.Resource
 	var endpoints []types.Resource
 	var routes []types.Resource
 	var listeners []types.Resource
 	allRoutes := make([]*route.Route, 0)
 
-	log.Printf("[BUILD SNAPSHOT] processing %d services", len(entryMap))
+	log.Printf("[BUILD SNAPSHOT] processing %d services", len(services))
 
-	for svc, instances := range entryMap {
-		if len(instances) == 0 {
-			log.Printf("[BUILD SNAPSHOT] service %s has no healthy instances", svc)
+	for _, svc := range services {
+		if len(svc.Instances) == 0 {
+			log.Printf("[BUILD SNAPSHOT] service %s has no healthy instances", svc.Name)
 			continue
 		}
 
-		log.Printf("[BUILD SNAPSHOT] adding service %s with %d instances", svc, len(instances))
+		log.Printf("[BUILD SNAPSHOT] adding service %s with %d instances", svc.Name, len(svc.Instances))
 
-		clusterName := svc
-		var parsedForRouting *consulapi.ServiceEntry
-		parsedForRouting = instances[0]
+		clusterName := svc.Name
 
 		// Endpoints - build load assignment with hostname and port
-		lbs := make([]*endpoint.LbEndpoint, 0, len(instances))
+		lbs := make([]*endpoint.LbEndpoint, 0, len(svc.Instances))
 
-		for _, e := range instances {
-			addr := e.Service.Address
-			if addr == "" {
-				addr = e.Node.Address
-			}
-			// Only replace with node address if service address is empty
-			// (don't replace valid hostnames with node IP)
-			if addr == "" {
+		for _, inst := range svc.Instances {
+			if inst.Address == "" {
 				continue
 			}
-			log.Printf("[ENDPOINT] service=%s address=%s port=%d nodeAddr=%s svcAddr=%s",
-				svc, addr, e.Service.Port, e.Node.Address, e.Service.Address)
+			log.Printf("[ENDPOINT] service=%s address=%s port=%d",
+				svc.Name, inst.Address, inst.Port)
 			lb := &endpoint.LbEndpoint{
 				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
 					Endpoint: &endpoint.Endpoint{
 						Address: &core.Address{
 							Address: &core.Address_SocketAddress{
 								SocketAddress: &core.SocketAddress{
-									Address:       addr,
-									PortSpecifier: &core.SocketAddress_PortValue{PortValue: uint32(e.Service.Port)},
+									Address:       inst.Address,
+									PortSpecifier: &core.SocketAddress_PortValue{PortValue: uint32(inst.Port)},
 								},
 							},
 						},
@@ -124,9 +78,6 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, entryMap map[string][]*co
 		}
 		endpoints = append(endpoints, cla)
 
-		// Get DNS refresh rate from metadata (in seconds)
-		dnsRefreshRate := GetDNSRefreshRate(instances[0])
-
 		// Cluster (STRICT_DNS for hostname resolution)
 		// Load assignment provides the hostname and port for DNS resolution
 		cl := &cluster.Cluster{
@@ -138,29 +89,19 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, entryMap map[string][]*co
 			LoadAssignment:  cla,
 			LbPolicy:        cluster.Cluster_ROUND_ROBIN,
 			DnsLookupFamily: cluster.Cluster_V4_ONLY,
-			DnsRefreshRate:  durationpb.New(dnsRefreshRate),
+			DnsRefreshRate:  durationpb.New(60 * time.Second),
 		}
 
 		// Add HTTP/2 protocol options if the service specifies http2 metadata or is detected as gRPC
-		if ShouldEnableHTTP2(instances[0]) {
-			log.Printf("[CLUSTER] service=%s configured with HTTP/2 support", svc)
+		if svc.EnableHTTP2 {
+			log.Printf("[CLUSTER] service=%s configured with HTTP/2 support", svc.Name)
 			cl.Http2ProtocolOptions = &core.Http2ProtocolOptions{}
 		}
 
 		clusters = append(clusters, cl)
 
-		// Parse service routing patterns
-		routePatterns := routeBuilder.BuildRoutes(parsedForRouting)
-
-		// Convert patterns to routes - patterns are RoutePattern objects
-		for _, rpInterface := range routePatterns {
-			// Assert to model.RoutePattern struct
-			rp, ok := rpInterface.(RoutePattern)
-			if !ok {
-				log.Printf("[BUILD SNAPSHOT] warning: failed to assert route pattern to RoutePattern type")
-				continue
-			}
-
+		// Convert route patterns to routes
+		for _, rp := range svc.Routes {
 			pathPrefix := rp.PathPrefix
 			matchType := rp.MatchType
 			headerName := rp.HeaderName
@@ -181,10 +122,10 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, entryMap map[string][]*co
 					},
 					Substitution: regexReplacement,
 				}
-				log.Printf("[ROUTE] service=%s regex_rewrite(pattern=%q substitution=%q)", svc, regexRewrite, regexReplacement)
+				log.Printf("[ROUTE] service=%s regex_rewrite(pattern=%q substitution=%q)", svc.Name, regexRewrite, regexReplacement)
 			} else if prefixRewrite != "" {
 				ra.PrefixRewrite = prefixRewrite
-				log.Printf("[ROUTE] service=%s prefix_rewrite=%q", svc, prefixRewrite)
+				log.Printf("[ROUTE] service=%s prefix_rewrite=%q", svc.Name, prefixRewrite)
 			}
 
 			routeMatch := &route.RouteMatch{

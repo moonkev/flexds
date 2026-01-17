@@ -53,7 +53,7 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 			}
 			queryOpts = queryOpts.WithContext(ctx)
 
-			services, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
+			serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 			if err != nil {
 				if ctx.Err() != nil {
 					log.Printf("[WATCHER:DEBOUNCE] stopping, context cancelled")
@@ -71,7 +71,12 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 
 			log.Printf("[WATCHER:DEBOUNCE] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
 			lastIndex = meta.LastIndex
-			latestServices = filterServices(services)
+
+			// Extract service names from the map keys
+			latestServices = make([]string, 0, len(serviceMapping))
+			for serviceName := range serviceMapping {
+				latestServices = append(latestServices, serviceName)
+			}
 
 			if !pendingUpdate {
 				// First change detected - start debounce timer
