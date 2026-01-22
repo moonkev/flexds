@@ -2,7 +2,7 @@ package watcher
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -25,7 +25,7 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[WATCHER:IMMEDIATE] stopping, context cancelled")
+			slog.Info("stopping immediate watcher, context cancelled")
 			return nil
 		default:
 		}
@@ -39,10 +39,10 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 		serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 		if err != nil {
 			if ctx.Err() != nil {
-				log.Printf("[WATCHER:IMMEDIATE] stopping, context cancelled")
+				slog.Info("stopping immediate watcher, context cancelled")
 				return nil
 			}
-			log.Printf("[WATCHER:IMMEDIATE] error fetching services: %v", err)
+			slog.Error("error fetching services", "error", err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -51,7 +51,7 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 			continue
 		}
 
-		log.Printf("[WATCHER:IMMEDIATE] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
+		slog.Info("detected change", "lastIndex", lastIndex, "newIndex", meta.LastIndex)
 		lastIndex = meta.LastIndex
 
 		// Extract service names from the map keys
@@ -59,10 +59,10 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 		for serviceName := range serviceMapping {
 			svcList = append(svcList, serviceName)
 		}
-		log.Printf("[WATCHER:IMMEDIATE] found %d services: %v", len(svcList), svcList)
+		slog.Info("found services", "count", len(svcList), "services", svcList)
 
 		if err := w.cfg.Handler(svcList); err != nil {
-			log.Printf("[WATCHER:IMMEDIATE] handler error: %v", err)
+			slog.Error("handler error", "error", err)
 		}
 	}
 }

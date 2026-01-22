@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,34 +32,45 @@ func main() {
 	var adsPort int
 	var adminPort int
 	var watcherStrategy string
+	var debugLogging bool
 
 	flag.StringVar(&consulAddr, "consul", defaultConsulAddr, "consul HTTP address (host:port)")
 	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
 	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
 	flag.StringVar(&watcherStrategy, "watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
+	flag.BoolVar(&debugLogging, "debug", false, "enable debug logging")
 	flag.Parse()
+
+	// Configure structured logging
+	var level = slog.LevelInfo
+	if debugLogging {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
 
 	// Initialize metrics
 	server.InitMetrics()
 
-	log.Printf("starting control plane with blocking queries; consul=%s", consulAddr)
+	slog.Info("starting control plane with blocking queries", "consul", consulAddr)
 
 	// Create Consul client
 	consulCfg := consulapi.DefaultConfig()
 	consulCfg.Address = fmt.Sprintf("http://%s", consulAddr)
 	consulClient, err := consulapi.NewClient(consulCfg)
 	if err != nil {
-		log.Fatalf("failed to create consul client: %v", err)
+		slog.Error("failed to create consul client", "error", err)
+		os.Exit(1)
 	}
 
 	// Create snapshot cache
 	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil)
 
 	// Create XDS server
-	log.Printf("creating XDS server...")
+	slog.Info("creating XDS server")
 	callbacks := &server.ServerCallbacks{Cache: snapshotCache}
 	adsServer := serverv3.NewServer(context.Background(), snapshotCache, callbacks)
-	log.Printf("XDS server created")
+	slog.Info("XDS server created")
 
 	// Setup context and channels
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,9 +92,10 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Printf("starting admin http on :%d", adminPort)
+		slog.Info("starting admin http server", "port", adminPort)
 		if err := admin.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("admin server failed: %v", err)
+			slog.Error("admin server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -105,7 +117,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
-	log.Printf("shutdown signal received, shutting down services...")
+	slog.Info("shutdown signal received, shutting down services")
 	cancel()
 
 	// Wait for all goroutines with a timeout
@@ -120,17 +132,17 @@ func main() {
 
 	select {
 	case <-done:
-		log.Printf("all services stopped gracefully")
+		slog.Info("all services stopped gracefully")
 	case <-shutdownCtx.Done():
-		log.Printf("shutdown timeout exceeded, forcing exit")
+		slog.Warn("shutdown timeout exceeded, forcing exit")
 	}
 
 	// Graceful shutdown of HTTP admin server
 	shutdownCtx2, cancel3 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel3()
 	if err := admin.Shutdown(shutdownCtx2); err != nil {
-		log.Printf("admin server shutdown error: %v", err)
+		slog.Error("admin server shutdown error", "error", err)
 	}
 
-	log.Printf("exiting")
+	slog.Info("exiting")
 }

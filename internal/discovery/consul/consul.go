@@ -2,7 +2,7 @@ package consul
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sort"
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -20,12 +20,13 @@ type ConsulConfig struct {
 	WatcherStrategy string // "immediate", "debounce", or "batch"
 }
 
-// WatchConsulBlocking watches for changes in Consul service catalog using the configured watcher strategy
-// strategy can be "immediate", "debounce", or "batch"
+// WatchConsulBlocking watches for changes in the Consul service catalog using the configured watcher strategy
+// selected strategy can be "immediate", "debounce", or "batch"
 func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache cachev3.SnapshotCache, cfg *ConsulConfig) {
+
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {
-		log.Printf("[CONSUL HANDLER] processing %d services: %v", len(services), services)
+		slog.Debug("Processing services", "count", len(services), "services", services)
 		server.MetricServicesDiscovered.Set(float64(len(services)))
 
 		var discoveredServices []*discovery.DiscoveredService
@@ -33,11 +34,11 @@ func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache ca
 		for _, svc := range services {
 			entries, _, err := client.Health().Service(svc, "", true, nil)
 			if err != nil {
-				log.Printf("[CONSUL HANDLER] error fetching healthy entries for service %s: %v", svc, err)
+				slog.Error("Failed fetching healthy entries", "service", svc, "error", err)
 				continue
 			}
 			if len(entries) == 0 {
-				log.Printf("[CONSUL HANDLER] service %s has no healthy instances", svc)
+				slog.Warn("Service has no healthy instances", "service", svc)
 				continue
 			}
 
@@ -90,7 +91,7 @@ func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache ca
 		return nil
 	}
 
-	// Create the appropriate watcher based on configured strategy
+	// Create the appropriate watcher based on a configured strategy
 	watcherCfg := &watcher.WatcherConfig{
 		Client:      client,
 		Cache:       cache,
@@ -105,10 +106,10 @@ func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache ca
 	}
 
 	w := watcher.NewWatcher(strategy, watcherCfg)
-	log.Printf("[CONSUL WATCH] starting with strategy: %s", strategy)
+	slog.Info("Starting consul watch", "strategy", strategy)
 
 	// Watch blocks until context is cancelled
 	if err := w.Watch(ctx); err != nil {
-		log.Printf("[CONSUL WATCH] error: %v", err)
+		slog.Error("consul watch error", "error", err)
 	}
 }

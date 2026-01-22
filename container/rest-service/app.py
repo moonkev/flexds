@@ -32,7 +32,6 @@ async def register_with_consul():
         "Address": CONTAINER_NAME,
         "Port": SERVICE_PORT,
         "Meta": {
-            "dns_refresh_rate": "30",
             "route_1_match_type": "path",
             "route_1_path_prefix": "/hello-service/",
             "route_1_prefix_rewrite": "/",
@@ -43,7 +42,7 @@ async def register_with_consul():
             "route_2_prefix_rewrite": "/",
             "route_3_match_type": "path",
             "route_3_path_prefix": "/regex-service",
-            "route_3_regex_rewrite": "^/regex-service/(?:/(.*))?$",
+            "route_3_regex_rewrite": "^/regex-service(?:/(.*))?$",
             "route_3_regex_replacement": "/\\1"
         }
     }
@@ -87,6 +86,11 @@ async def lifespan(app: FastAPI):
     await deregister_from_consul()
 
 app = FastAPI(lifespan=lifespan)
+
+@app.get('/')
+async def root():
+    """Root endpoint."""
+    return JSONResponse({'message': 'REST service is running'}, status_code=200)
 
 @app.get('/health')
 async def health():

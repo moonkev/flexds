@@ -3,7 +3,7 @@ package xds
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -34,15 +34,15 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 	var listeners []types.Resource
 	allRoutes := make([]*route.Route, 0)
 
-	log.Printf("[BUILD SNAPSHOT] processing %d services", len(services))
+	slog.Info("Building snapshot", "count", len(services))
 
 	for _, svc := range services {
-		if len(svc.Instances) == 0 {
-			log.Printf("[BUILD SNAPSHOT] service %s has no healthy instances", svc.Name)
+		if len(svc.Instances) == 0 || len(svc.Routes) == 0 {
+			slog.Info("Service has no healthy instances or configured routes", "service", svc.Name)
 			continue
 		}
 
-		log.Printf("[BUILD SNAPSHOT] adding service %s with %d instances", svc.Name, len(svc.Instances))
+		slog.Debug("Adding service", "service", svc.Name, "instances", len(svc.Instances))
 
 		clusterName := svc.Name
 
@@ -53,8 +53,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 			if inst.Address == "" {
 				continue
 			}
-			log.Printf("[ENDPOINT] service=%s address=%s port=%d",
-				svc.Name, inst.Address, inst.Port)
+			slog.Debug("Adding endpoint", "service", svc.Name, "address", inst.Address, "port", inst.Port)
 			lb := &endpoint.LbEndpoint{
 				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
 					Endpoint: &endpoint.Endpoint{
@@ -94,7 +93,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 
 		// Add HTTP/2 protocol options if the service specifies http2 metadata or is detected as gRPC
 		if svc.EnableHTTP2 {
-			log.Printf("[CLUSTER] service=%s configured with HTTP/2 support", svc.Name)
+			slog.Debug("configuring HTTP/2 support", "service", svc.Name)
 			cl.Http2ProtocolOptions = &core.Http2ProtocolOptions{}
 		}
 
@@ -122,10 +121,11 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 					},
 					Substitution: regexReplacement,
 				}
-				log.Printf("[ROUTE] service=%s regex_rewrite(pattern=%q substitution=%q)", svc.Name, regexRewrite, regexReplacement)
+				slog.Debug(
+					"configuring regex rewrite", "service", svc.Name, "pattern", regexRewrite, "substitution", regexReplacement)
 			} else if prefixRewrite != "" {
 				ra.PrefixRewrite = prefixRewrite
-				log.Printf("[ROUTE] service=%s prefix_rewrite=%q", svc.Name, prefixRewrite)
+				slog.Debug("configuring prefix rewrite", "service", svc.Name, "prefixRewrite", prefixRewrite)
 			}
 
 			routeMatch := &route.RouteMatch{
@@ -164,23 +164,23 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 
 	// If no services, push an empty snapshot
 	if len(clusters) == 0 {
-		log.Printf("[BUILD SNAPSHOT] no services with healthy instances, pushing empty snapshot")
+		slog.Warn("No services with healthy instances, pushing empty snapshot")
 		snap, err := cachev3.NewSnapshot(fmt.Sprintf("%d", atomic.AddUint64(&version, 1)), map[resource.Type][]types.Resource{})
 		if err != nil {
-			log.Printf("error creating empty snapshot: %v", err)
+			slog.Error("Failed creating empty snapshot", "error", err)
 			return
 		}
 		err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
 		if err != nil {
-			log.Printf("[SNAPSHOT STORE] error setting empty reference snapshot: %v", err)
+			slog.Error("Failed setting empty reference snapshot", "error", err)
 		}
 		nodeIDs := cache.GetStatusKeys()
 		for _, nodeID := range nodeIDs {
 			if err := cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
-				log.Printf("[SNAPSHOT STORE] error setting empty snapshot for %s: %v", nodeID, err)
+				slog.Error("Failed setting empty snapshot", "nodeID", nodeID, "error", err)
 			}
 		}
-		log.Printf("[SNAPSHOT PUSHED] empty snapshot")
+		slog.Info("Empty snapshot pushed")
 		return
 	}
 
@@ -219,7 +219,7 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 
 	hcmAny, err := anypb.New(hcmCfg)
 	if err != nil {
-		log.Printf("failed to marshal hcm: %v", err)
+		slog.Error("Failed to marshal HCM", "error", err)
 		return
 	}
 
@@ -245,24 +245,29 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 	})
 
 	if err != nil {
-		log.Printf("error creating snapshot: %v", err)
+		slog.Error("Failed to create snapshot", "error", err)
 		return
 	}
 
 	err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
 	if err != nil {
-		log.Printf("[SNAPSHOT STORE] error setting reference snapshot: %v", err)
+		slog.Error("Failed setting reference snapshot", "error", err)
 	}
 	nodeIDs := cache.GetStatusKeys()
-	log.Printf("[DEBUG]Node IDs: %s", nodeIDs)
+	slog.Debug("node IDs", "nodeIDs", nodeIDs)
 
 	for _, nodeID := range nodeIDs {
 		err = cache.SetSnapshot(context.Background(), nodeID, snap)
 		if err != nil {
-			log.Printf("[SNAPSHOT STORE] error setting snapshot for %s: %v", nodeID, err)
+			slog.Error("Failed setting snapshot", "nodeID", nodeID, "error", err)
 		}
 	}
-	log.Printf("[SNAPSHOT PUSHED] version=%s listeners=%d clusters=%d endpoints=%d routes=%d virtualHosts=%d",
-		snapVer, len(listeners), len(clusters), len(endpoints), len(routes), len(virtualHosts))
+	slog.Info("Snapshot pushed",
+		"version", snapVer,
+		"listeners", len(listeners),
+		"clusters", len(clusters),
+		"endpoints", len(endpoints),
+		"routes", len(routes),
+		"virtualHosts", len(virtualHosts))
 	server.MetricSnapshotsPushed.Inc()
 }

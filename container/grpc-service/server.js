@@ -49,7 +49,6 @@ function registerWithConsul() {
     Port: SERVICE_PORT,
     Meta: {
       "http2": "true",
-      "dns_refresh_rate": "30",
       "route_1_match_type": "header",
       "route_1_header_name": "X-Service",
       "route_1_header_value": "grpc-service",

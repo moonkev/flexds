@@ -2,7 +2,7 @@ package watcher
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -34,16 +34,16 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[WATCHER:DEBOUNCE] stopping, context cancelled")
+			slog.Info("Stopping debounce watcher, context cancelled")
 			debounceTimer.Stop()
 			return nil
 
 		case <-debounceTimer.C:
 			// Debounce period expired - apply the update now
-			log.Printf("[WATCHER:DEBOUNCE] debounce timer fired, applying batched update with %d services", len(latestServices))
+			slog.Info("Debounce timer fired, applying batched update", "services", len(latestServices))
 			pendingUpdate = false
 			if err := w.cfg.Handler(latestServices); err != nil {
-				log.Printf("[WATCHER:DEBOUNCE] handler error: %v", err)
+				slog.Error("handler error", "error", err)
 			}
 
 		default:
@@ -56,11 +56,11 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 			serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Printf("[WATCHER:DEBOUNCE] stopping, context cancelled")
+					slog.Info("Stopping debounce watcher, context cancelled")
 					debounceTimer.Stop()
 					return nil
 				}
-				log.Printf("[WATCHER:DEBOUNCE] error fetching services: %v", err)
+				slog.Error("Failed to fetch services", "error", err)
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -69,7 +69,7 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 				continue
 			}
 
-			log.Printf("[WATCHER:DEBOUNCE] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
+			slog.Info("Detected change", "lastIndex", lastIndex, "newIndex", meta.LastIndex)
 			lastIndex = meta.LastIndex
 
 			// Extract service names from the map keys
@@ -80,12 +80,12 @@ func (w *DebounceWatcher) Watch(ctx context.Context) error {
 
 			if !pendingUpdate {
 				// First change detected - start debounce timer
-				log.Printf("[WATCHER:DEBOUNCE] starting debounce timer (%v)", w.debounceInterval)
+				slog.Info("Starting debounce timer", "interval", w.debounceInterval)
 				pendingUpdate = true
 				debounceTimer.Reset(w.debounceInterval)
 			} else {
-				// Another change while debounce is active - reset timer
-				log.Printf("[WATCHER:DEBOUNCE] resetting debounce timer, more changes coming")
+				// Reset timer as another change while debounce is active
+				slog.Info("Resetting debounce timer, more changes coming")
 				debounceTimer.Reset(w.debounceInterval)
 			}
 		}

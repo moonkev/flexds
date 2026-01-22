@@ -2,7 +2,7 @@ package watcher
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -36,15 +36,15 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[WATCHER:BATCH] stopping, context cancelled")
+			slog.Info("stopping batch watcher, context cancelled")
 			batchTimer.Stop()
 			return nil
 
 		case <-batchTimer.C:
 			if batchCount > 0 {
-				log.Printf("[WATCHER:BATCH] batch timeout, applying %d changes with %d services", batchCount, len(services))
+				slog.Info("Batch timeout, applying changes", "changes", batchCount, "services", len(services))
 				if err := w.cfg.Handler(services); err != nil {
-					log.Printf("[WATCHER:BATCH] handler error: %v", err)
+					slog.Error("handler error", "error", err)
 				}
 				batchCount = 0
 				batchTimer.Stop()
@@ -60,11 +60,11 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 			serviceMapping, meta, err := w.cfg.Client.Catalog().Services(queryOpts)
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Printf("[WATCHER:BATCH] stopping, context cancelled")
+					slog.Info("Stopping batch watcher, context cancelled")
 					batchTimer.Stop()
 					return nil
 				}
-				log.Printf("[WATCHER:BATCH] error fetching services: %v", err)
+				slog.Error("Failed to fetch services", "error", err)
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -73,7 +73,6 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 				continue
 			}
 
-			log.Printf("[WATCHER:BATCH] detected change: lastIndex=%d newIndex=%d", lastIndex, meta.LastIndex)
 			lastIndex = meta.LastIndex
 
 			// Extract service names from the map keys
@@ -83,20 +82,20 @@ func (w *BatchWatcher) Watch(ctx context.Context) error {
 			}
 			batchCount++
 
-			log.Printf("[WATCHER:BATCH] change detected, batch count: %d/%d", batchCount, w.maxBatchSize)
+			slog.Info("Change detected", "batchCount", batchCount, "maxBatchSize", w.maxBatchSize)
 
 			if batchCount >= w.maxBatchSize {
 				// Batch is full - apply immediately
-				log.Printf("[WATCHER:BATCH] batch limit reached, applying snapshot")
+				slog.Info("Batch limit reached, applying snapshot")
 				if err := w.cfg.Handler(services); err != nil {
-					log.Printf("[WATCHER:BATCH] handler error: %v", err)
+					slog.Error("Error processing batch", "error", err)
 				}
 				batchCount = 0
 				batchTimer.Stop()
 			} else {
 				// Start timer if not already running
 				if batchCount == 1 {
-					log.Printf("[WATCHER:BATCH] starting batch timer (%v)", w.batchTimeout)
+					slog.Info("Starting batch timer", "timeout", w.batchTimeout)
 					batchTimer.Reset(w.batchTimeout)
 				}
 			}

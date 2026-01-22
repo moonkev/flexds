@@ -308,7 +308,6 @@ Services register with the following metadata for configuration:
 
 ```json
 {
-  "dns_refresh_rate": "30",                    // DNS refresh interval in seconds
   "route_1_match_type": "path",                // Path-based routing
   "route_1_path_prefix": "/hello-service",     // Route prefix
   "route_1_prefix_rewrite": "/",               // Rewrite prefix for upstream

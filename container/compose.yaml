@@ -57,7 +57,7 @@ services:
   consul-agent:
     image: consul:1.15.4
     container_name: consul-agent
-    command: agent -client=0.0.0.0 -node=consul-agent -retry-join=consul-server-1
+    command: agent -ui -client=0.0.0.0 -node=consul-agent -retry-join=consul-server-1
     ports:
       - "18500:8500"
       - "18600:8600/udp"

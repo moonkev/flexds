@@ -3,8 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
+	"os"
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"google.golang.org/grpc"
@@ -25,7 +26,8 @@ import (
 func RunGRPC(ctx context.Context, adsServer serverv3.Server, port int) {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Fatalf("failed to listen on %d: %v", port, err)
+		slog.Error("Failed to listen", "port", port, "error", err)
+		os.Exit(1)
 	}
 
 	// gRPC server options for better streaming support
@@ -50,23 +52,24 @@ func RunGRPC(ctx context.Context, adsServer serverv3.Server, port int) {
 	listenerservice.RegisterListenerDiscoveryServiceServer(grpcServer, adsServer)
 	routeservice.RegisterRouteDiscoveryServiceServer(grpcServer, adsServer)
 
-	log.Printf("[GRPC] registered all discovery services with keepalive on port %d", port)
+	slog.Info("registered all discovery services with keepalive", "port", port)
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("[GRPC] ADS server listening on %d", port)
+		slog.Info("ADS server listening", "port", port)
 		serveErr <- grpcServer.Serve(lis)
 	}()
 
 	select {
 	case <-ctx.Done():
-		log.Printf("[GRPC] context cancelled, stopping gRPC server")
+		slog.Info("context cancelled, stopping gRPC server")
 		grpcServer.GracefulStop()
-		log.Printf("[GRPC] waiting for server to stop...")
+		slog.Info("waiting for server to stop")
 		<-serveErr
-		log.Printf("[GRPC] gRPC server stopped via context")
+		slog.Info("gRPC server stopped via context")
 	case err := <-serveErr:
-		log.Fatalf("[GRPC] serve error: %v", err)
+		slog.Error("serve error", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -77,25 +80,30 @@ type ServerCallbacks struct {
 }
 
 func (cb *ServerCallbacks) OnStreamOpen(ctx context.Context, streamID int64, typeURL string) error {
-	log.Printf("[STREAM OPEN] streamID=%d typeURL=%s - callback fired", streamID, typeURL)
+	slog.Debug("OnStreamOpen", "streamID", streamID, "typeURL", typeURL)
 	return nil
 }
 
 func (cb *ServerCallbacks) OnStreamClosed(streamID int64, node *core.Node) {
-	log.Printf("[STREAM CLOSED] streamID=%d nodeID=%s", streamID, node.Id)
+	slog.Debug("OnStreamClosed", "streamID", streamID, "nodeID", node.Id)
 }
 
 func (cb *ServerCallbacks) OnStreamRequest(streamID int64, req *discovery.DiscoveryRequest) error {
-	log.Printf("[STREAM REQUEST] streamID=%d nodeID=%s typeURL=%s resourceNames=%v responseNonce=%s versionInfo=%s",
-		streamID, req.Node.Id, req.TypeUrl, req.ResourceNames, req.ResponseNonce, req.VersionInfo)
+	slog.Debug("OnStreamRequest",
+		"streamID", streamID,
+		"nodeID", req.Node.Id,
+		"typeURL", req.TypeUrl,
+		"resourceNames", req.ResourceNames,
+		"responseNonce", req.ResponseNonce,
+		"versionInfo", req.VersionInfo)
 	snapshot, err := cb.Cache.GetSnapshot("__REFERENCE_SNAPSHOT__")
 	if err != nil {
-		log.Printf("[STREAM OPEN] error fetching reference snapshot: %v", err)
+		slog.Error("error fetching reference snapshot", "error", err)
 		return err
 	}
 	err = cb.Cache.SetSnapshot(context.Background(), req.Node.Id, snapshot)
 	if err != nil {
-		log.Printf("[STREAM OPEN] error setting snapshot for node %s: %v", req.Node.Id, err)
+		slog.Error("error setting snapshot for node", "nodeID", req.Node.Id, "error", err)
 		return err
 	}
 	return nil
@@ -103,28 +111,32 @@ func (cb *ServerCallbacks) OnStreamRequest(streamID int64, req *discovery.Discov
 
 func (cb *ServerCallbacks) OnStreamResponse(ctx context.Context, streamID int64, req *discovery.DiscoveryRequest, resp *discovery.DiscoveryResponse) {
 	if resp != nil {
-		log.Printf("[STREAM RESPONSE] streamID=%d nodeID=%s typeURL=%s resources=%d nonce=%s version=%s",
-			streamID, req.Node.Id, req.TypeUrl, len(resp.Resources), resp.Nonce, resp.VersionInfo)
+		slog.Debug("OnStreamResponse",
+			"streamID", streamID,
+			"nodeID", req.Node.Id,
+			"typeURL", req.TypeUrl,
+			"resources", len(resp.Resources),
+			"nonce", resp.Nonce,
+			"version", resp.VersionInfo)
 	} else {
-		log.Printf("[STREAM RESPONSE] streamID=%d nodeID=%s typeURL=%s response=nil",
-			streamID, req.Node.Id, req.TypeUrl)
+		slog.Debug("OnStreamResponse (nil)", "streamID", streamID, "nodeID", req.Node.Id, "typeURL", req.TypeUrl)
 	}
 }
 
 func (cb *ServerCallbacks) OnDeltaStreamOpen(ctx context.Context, streamID int64, typeURL string) error {
-	log.Printf("[DELTA STREAM OPEN] streamID=%d typeURL=%s", streamID, typeURL)
+	slog.Debug("OnDeltaStreamOpen", "streamID", streamID, "typeURL", typeURL)
 	return nil
 }
 
 func (cb *ServerCallbacks) OnDeltaStreamClosed(streamID int64, node *core.Node) {
-	log.Printf("[DELTA STREAM CLOSED] streamID=%d nodeID=%s", streamID, node.Id)
+	slog.Debug("OnDeltaStreamClosed", "streamID", streamID, "nodeID", node.Id)
 }
 
 func (cb *ServerCallbacks) OnStreamDeltaRequest(streamID int64, req *discovery.DeltaDiscoveryRequest) error {
-	log.Printf("[DELTA REQUEST] streamID=%d nodeID=%s typeURL=%s", streamID, req.Node.Id, req.TypeUrl)
+	slog.Debug("OnStreamDeltaRequest", "streamID", streamID, "nodeID", req.Node.Id, "typeURL", req.TypeUrl)
 	return nil
 }
 
 func (cb *ServerCallbacks) OnStreamDeltaResponse(streamID int64, req *discovery.DeltaDiscoveryRequest, resp *discovery.DeltaDiscoveryResponse) {
-	log.Printf("[DELTA RESPONSE] streamID=%d nodeID=%s typeURL=%s", streamID, req.Node.Id, resp.TypeUrl)
+	slog.Debug("OnStreamDeltaResponse", "streamID", streamID, "nodeID", req.Node.Id, "typeURL", resp.TypeUrl)
 }

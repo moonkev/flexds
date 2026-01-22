@@ -157,7 +157,6 @@ Define flexible routing rules in Consul service metadata. Services register thes
 Configure routes in Consul service metadata using this format:
 
 ```
-dns_refresh_rate          = "30"                      # DNS refresh interval in seconds
 route_N_match_type        = "path" | "header" | "both"
 route_N_path_prefix       = "/path/to/service"
 route_N_header_name       = "X-Header-Name"
@@ -181,7 +180,6 @@ The included REST services register themselves:
   "Port": 8080,
   "Address": "rest-service-1",
   "Meta": {
-    "dns_refresh_rate": "30",
     "route_1_match_type": "path",
     "route_1_path_prefix": "/hello-service",
     "route_1_prefix_rewrite": "/",
@@ -219,7 +217,6 @@ The gRPC services register with HTTP/2 support:
   "Address": "grpc-service-1",
   "Meta": {
     "http2": "true",
-    "dns_refresh_rate": "30",
     "route_1_match_type": "header",
     "route_1_header_name": "X-Service",
     "route_1_header_value": "grpc-service",
@@ -251,7 +248,6 @@ curl -X PUT http://localhost:18500/v1/agent/service/register \
     "Port": 3000,
     "Address": "my-service-container",
     "Meta": {
-      "dns_refresh_rate": "60",
       "route_1_match_type": "path",
       "route_1_path_prefix": "/api/my-service",
       "route_1_prefix_rewrite": "/api",
@@ -329,7 +325,7 @@ cluster.LoadAssignment = &endpoint.ClusterLoadAssignment{
 
 **Why STRICT_DNS?**
 - Preserves service hostnames for container DNS resolution
-- Resolves once per refresh interval (configurable via `dns_refresh_rate` metadata)
+- Resolves once per refresh interval
 - Load-balances across resolved addresses
 - Works seamlessly with container networks
 

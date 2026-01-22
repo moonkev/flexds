@@ -1,7 +1,8 @@
 package consul
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -17,22 +18,11 @@ import (
 //   - route_N_header_name: header name to match (e.g., "X-Service")
 //   - route_N_header_value: header value to match (e.g., "py-web")
 //   - route_N_prefix_rewrite: what to rewrite the matched prefix to (e.g., "/")
-//   - route_N_hosts: comma-separated list of domains (e.g., "api.example.com,api2.example.com")
 //
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns
 func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern {
 	svc := entry.Service.Service
 	var routes []discovery.RoutePattern
-
-	// If no metadata, create a default route with wildcard domain (accepts any Host header)
-	if len(entry.Service.Meta) == 0 {
-		return []discovery.RoutePattern{{
-			Name:       svc + "-default",
-			MatchType:  "path",
-			PathPrefix: "/svc/" + svc,
-			Hosts:      []string{"*"},
-		}}
-	}
 
 	// Parse numbered routes from metadata using underscore format: route_N_fieldname
 	routeMap := make(map[string]map[string]string) // routeMap[routeNum][key] = value
@@ -52,12 +42,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern 
 
 	// If no numbered routes, create default
 	if len(routeMap) == 0 {
-		return []discovery.RoutePattern{{
-			Name:       svc + "-default",
-			MatchType:  "path",
-			PathPrefix: "/svc/" + svc,
-			Hosts:      []string{svc + ".service.consul"},
-		}}
+		return routes
 	}
 
 	// Build RoutePattern objects from the map
@@ -69,21 +54,22 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern 
 		}
 
 		rp := discovery.RoutePattern{
-			Name:      svc + "-route" + routeNumStr,
-			MatchType: "path", // default
+			Name:      fmt.Sprintf("%s-route-%s", svc, routeNumStr),
+			MatchType: "path",
+			Hosts:     []string{"*"},
 		}
 
 		if v, ok := routeConfig["match_type"]; ok {
 			rp.MatchType = v
-		}
-		if v, ok := routeConfig["path_prefix"]; ok {
-			rp.PathPrefix = v
 		}
 		if v, ok := routeConfig["header_name"]; ok {
 			rp.HeaderName = v
 		}
 		if v, ok := routeConfig["header_value"]; ok {
 			rp.HeaderValue = v
+		}
+		if v, ok := routeConfig["path_prefix"]; ok {
+			rp.PathPrefix = v
 		}
 		// Support legacy prefix_rewrite
 		if v, ok := routeConfig["prefix_rewrite"]; ok {
@@ -96,37 +82,22 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern 
 		if v, ok := routeConfig["regex_replacement"]; ok {
 			rp.RegexReplacement = v
 		}
-		if v, ok := routeConfig["hosts"]; ok {
-			hosts := strings.Split(v, ",")
-			for _, h := range hosts {
-				if h = strings.TrimSpace(h); h != "" {
-					rp.Hosts = append(rp.Hosts, h)
-				}
-			}
-		}
 
 		// Set defaults if not provided
 		if rp.PathPrefix == "" {
-			rp.PathPrefix = "/svc/" + svc
-		}
-		// Default to wildcard domain (accepts any Host header) if not specified
-		if len(rp.Hosts) == 0 {
-			rp.Hosts = []string{"*"}
+			slog.Warn("No path prefix provided for route", "route", rp.Name)
+			continue
 		}
 
 		routes = append(routes, rp)
-		log.Printf("[PARSE ROUTES] service=%s route=%s match_type=%s path=%s prefix_rewrite=%q header=%s:%s hosts=%v",
-			svc, rp.Name, rp.MatchType, rp.PathPrefix, rp.PrefixRewrite, rp.HeaderName, rp.HeaderValue, rp.Hosts)
-	}
-
-	// If still no routes, return default
-	if len(routes) == 0 {
-		routes = []discovery.RoutePattern{{
-			Name:       svc + "-default",
-			MatchType:  "path",
-			PathPrefix: "/svc/" + svc,
-			Hosts:      []string{"*"},
-		}}
+		slog.Debug("Parse route",
+			"service", svc,
+			"route", rp.Name,
+			"matchType", rp.MatchType,
+			"path", rp.PathPrefix,
+			"prefixRewrite", rp.PrefixRewrite,
+			"header", rp.HeaderName+":"+rp.HeaderValue,
+			"hosts", rp.Hosts)
 	}
 
 	return routes
