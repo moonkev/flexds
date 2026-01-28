@@ -2,7 +2,9 @@ package consul
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -13,16 +15,42 @@ import (
 	"github.com/moonkev/flexds/internal/xds"
 )
 
-// Config holds the application configuration
-type ConsulConfig struct {
+// DiscoveryConfig Config holds the application configuration
+type DiscoveryConfig struct {
 	ConsulAddr      string
 	WaitTimeSec     int
 	WatcherStrategy string // "immediate", "debounce", or "batch"
 }
 
+type HeaderRoundTripper struct {
+	Rt http.RoundTripper
+}
+
+func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return h.Rt.RoundTrip(req)
+}
+
+func NewClient(addr string) (*consulapi.Client, error) {
+	consulCfg := consulapi.DefaultConfig()
+	consulCfg.Address = fmt.Sprintf("http://%s", addr)
+
+	consulCfg.HttpClient = &http.Client{
+		Transport: &HeaderRoundTripper{Rt: http.DefaultTransport},
+	}
+	return consulapi.NewClient(consulCfg)
+}
+
 // WatchConsulBlocking watches for changes in the Consul service catalog using the configured watcher strategy
 // selected strategy can be "immediate", "debounce", or "batch"
-func WatchConsulBlocking(ctx context.Context, client *consulapi.Client, cache cachev3.SnapshotCache, cfg *ConsulConfig) {
+func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.SnapshotCache, cfg *DiscoveryConfig) {
+
+	client, err := NewClient(addr)
+	if err != nil {
+		slog.Error("failed to create consul client", "error", err)
+		return
+	}
 
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {

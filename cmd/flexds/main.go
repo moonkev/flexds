@@ -15,7 +15,6 @@ import (
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	consulapi "github.com/hashicorp/consul/api"
 	"github.com/moonkev/flexds/internal/discovery/consul"
 	"github.com/moonkev/flexds/internal/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -54,15 +53,6 @@ func main() {
 
 	slog.Info("starting control plane with blocking queries", "consul", consulAddr)
 
-	// Create Consul client
-	consulCfg := consulapi.DefaultConfig()
-	consulCfg.Address = fmt.Sprintf("http://%s", consulAddr)
-	consulClient, err := consulapi.NewClient(consulCfg)
-	if err != nil {
-		slog.Error("failed to create consul client", "error", err)
-		os.Exit(1)
-	}
-
 	// Create snapshot cache
 	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil)
 
@@ -100,7 +90,7 @@ func main() {
 	}()
 
 	// Start Consul watch
-	config := &consul.ConsulConfig{
+	config := &consul.DiscoveryConfig{
 		ConsulAddr:      consulAddr,
 		WaitTimeSec:     2,
 		WatcherStrategy: watcherStrategy,
@@ -109,7 +99,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		consul.WatchConsulBlocking(ctx, consulClient, snapshotCache, config)
+		consul.WatchConsulBlocking(ctx, consulAddr, snapshotCache, config)
 	}()
 
 	// Wait for shutdown signal
