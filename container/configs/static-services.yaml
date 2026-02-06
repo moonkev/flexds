@@ -1,0 +1,10 @@
+- name: "envoy-admin"
+  instances:
+    - host: "envoy-proxy-1"
+      port: 19000
+    - host: "envoy-proxy-2"
+      port: 19000
+  meta:
+    route_1_match_type: "path"
+    route_1_path_prefix: "/envoy-admin"
+    route_1_prefix_rewrite: "/"

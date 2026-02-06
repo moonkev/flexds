@@ -126,7 +126,7 @@ podman compose down
 
 ```bash
 # From project root
-podman compose -f container/compose.yaml up --build -d
+podman compose -f container/compose-consul.yaml up --build -d
 ```
 
 ## Testing Services

@@ -78,20 +78,7 @@ services:
       context: ..
       dockerfile: container/Containerfile
     container_name: flexds
-    command:
-      - "-consul"
-      - "-consul-addr"
-      - "consul-agent:8500"
-      - "-yaml"
-      - "-yaml-file"
-      - "/etc/flexds/static-services.yaml"
-      - "-ads-port"
-      - "18000"
-      - "-admin-port"
-      - "19005"
-      - "-debug"
-    volumes:
-      - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
+    command: ["-consul", "-consul-addr", "consul-agent:8500", "-ads-port", "18000", "-admin-port", "19005"]
     networks:
       - flexds-net
     environment:
@@ -128,7 +115,7 @@ services:
     depends_on:
       - flexds
     volumes:
-      - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
+      - ./envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
       - "28080:18080"
       - "29000:19000"

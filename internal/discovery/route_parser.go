@@ -1,4 +1,4 @@
-package consul
+package discovery
 
 import (
 	"fmt"
@@ -6,8 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	consulapi "github.com/hashicorp/consul/api"
-	"github.com/moonkev/flexds/internal/discovery"
+	"github.com/moonkev/flexds/internal/types"
 )
 
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns.
@@ -20,13 +19,12 @@ import (
 //   - route_N_prefix_rewrite: what to rewrite the matched prefix to (e.g., "/")
 //
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns
-func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern {
-	svc := entry.Service.Service
-	var routes []discovery.RoutePattern
+func ParseServiceRoutes(svc string, meta map[string]string) []types.RoutePattern {
+	var routes []types.RoutePattern
 
 	// Parse numbered routes from metadata using underscore format: route_N_fieldname
 	routeMap := make(map[string]map[string]string) // routeMap[routeNum][key] = value
-	for key, value := range entry.Service.Meta {
+	for key, value := range meta {
 		if strings.HasPrefix(key, "route_") {
 			parts := strings.SplitN(key, "_", 3)
 			if len(parts) == 3 {
@@ -53,7 +51,7 @@ func ParseServiceRoutes(entry *consulapi.ServiceEntry) []discovery.RoutePattern 
 			continue
 		}
 
-		rp := discovery.RoutePattern{
+		rp := types.RoutePattern{
 			Name:      fmt.Sprintf("%s-route-%s", svc, routeNumStr),
 			MatchType: "path",
 			Hosts:     []string{"*"},

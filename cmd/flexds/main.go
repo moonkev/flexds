@@ -15,8 +15,11 @@ import (
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/discovery/consul"
+	"github.com/moonkev/flexds/internal/discovery/yaml"
 	"github.com/moonkev/flexds/internal/server"
+	"github.com/moonkev/flexds/internal/xds"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -27,18 +30,35 @@ const (
 )
 
 func main() {
-	var consulAddr string
 	var adsPort int
 	var adminPort int
-	var watcherStrategy string
 	var debugLogging bool
+	var consulDiscovery bool
+	var consulAddr string
+	var watcherStrategy string
+	var yamlDiscovery bool
+	var yamlFile string
 
-	flag.StringVar(&consulAddr, "consul", defaultConsulAddr, "consul HTTP address (host:port)")
 	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
 	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
-	flag.StringVar(&watcherStrategy, "watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
 	flag.BoolVar(&debugLogging, "debug", false, "enable debug logging")
+	flag.BoolVar(&consulDiscovery, "consul", false, "Use Consul for service discovery")
+	flag.StringVar(&consulAddr, "consul-addr", defaultConsulAddr, "consul HTTP address (host:port)")
+	flag.StringVar(&watcherStrategy, "consul-watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
+	flag.BoolVar(&yamlDiscovery, "yaml", false, "Use YAML file for service discovery")
+	flag.StringVar(&yamlFile, "yaml-file", "", "path to YAML configuration file (required when discovery=yaml)")
 	flag.Parse()
+
+	// Validate flags
+	if !consulDiscovery && !yamlDiscovery {
+		slog.Error("at least one discovery mode must be enabled: -consul or -yaml")
+		os.Exit(1)
+	}
+
+	if yamlDiscovery && yamlFile == "" {
+		slog.Error("yaml-file must be specified when using yaml discovery mode")
+		os.Exit(1)
+	}
 
 	// Configure structured logging
 	var level = slog.LevelInfo
@@ -55,6 +75,8 @@ func main() {
 
 	// Create snapshot cache
 	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil)
+	snapshotManager := xds.NewSnapshotManager(snapshotCache)
+	aggregator := discovery.NewDiscoveredServiceAggregator(snapshotManager)
 
 	// Create XDS server
 	slog.Info("creating XDS server")
@@ -89,18 +111,27 @@ func main() {
 		}
 	}()
 
-	// Start Consul watch
-	config := &consul.DiscoveryConfig{
-		ConsulAddr:      consulAddr,
-		WaitTimeSec:     2,
-		WatcherStrategy: watcherStrategy,
+	if consulDiscovery {
+		consulConfig := &consul.Config{
+			ConsulAddr:      consulAddr,
+			WaitTimeSec:     2,
+			WatcherStrategy: watcherStrategy,
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			consul.WatchConsulBlocking(ctx, consulAddr, consulConfig, aggregator)
+		}()
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		consul.WatchConsulBlocking(ctx, consulAddr, snapshotCache, config)
-	}()
+	if yamlDiscovery {
+		yamlConfig := yaml.Config{ConfigPath: yamlFile}
+		if err := yaml.LoadConfig(yamlConfig, aggregator); err != nil {
+			slog.Error("failed to load YAML config", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Wait for shutdown signal
 	stop := make(chan os.Signal, 1)

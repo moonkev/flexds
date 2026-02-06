@@ -11,7 +11,6 @@ const proto = grpc.loadPackageDefinition(packageDef);
 // Consul configuration
 const CONSUL_HOST = process.env.CONSUL_HOST || 'consul-agent';
 const CONSUL_PORT = process.env.CONSUL_PORT || 8500;
-const CONSUL_URL = `http://${CONSUL_HOST}:${CONSUL_PORT}`;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'grpc-service';
 const SERVICE_PORT = 9090;
 const SERVICE_ID = process.env.SERVICE_ID || `${SERVICE_NAME}:${SERVICE_PORT}`;

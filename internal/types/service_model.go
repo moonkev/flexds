@@ -1,4 +1,4 @@
-package discovery
+package types
 
 // ServiceInstance represents a discovered service instance
 type ServiceInstance struct {
@@ -23,6 +23,6 @@ type RoutePattern struct {
 type DiscoveredService struct {
 	Name        string
 	EnableHTTP2 bool
-	Instances   []*ServiceInstance
+	Instances   []ServiceInstance
 	Routes      []RoutePattern // Routing patterns for this service
 }

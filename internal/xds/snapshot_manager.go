@@ -18,16 +18,24 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/server"
+	types2 "github.com/moonkev/flexds/internal/types"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 var version uint64 = 1
 
-// BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to cache
-func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.DiscoveredService) {
+type SnapshotManager struct {
+	cache cachev3.SnapshotCache
+}
+
+func NewSnapshotManager(cache cachev3.SnapshotCache) *SnapshotManager {
+	return &SnapshotManager{cache: cache}
+}
+
+// BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to Cache
+func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredService) {
 	var clusters []types.Resource
 	var endpoints []types.Resource
 	var routes []types.Resource
@@ -170,13 +178,13 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 			slog.Error("Failed creating empty snapshot", "error", err)
 			return
 		}
-		err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
+		err = s.cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
 		if err != nil {
 			slog.Error("Failed setting empty reference snapshot", "error", err)
 		}
-		nodeIDs := cache.GetStatusKeys()
+		nodeIDs := s.cache.GetStatusKeys()
 		for _, nodeID := range nodeIDs {
-			if err := cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
+			if err := s.cache.SetSnapshot(context.Background(), nodeID, snap); err != nil {
 				slog.Error("Failed setting empty snapshot", "nodeID", nodeID, "error", err)
 			}
 		}
@@ -249,15 +257,15 @@ func BuildAndPushSnapshot(cache cachev3.SnapshotCache, services []*discovery.Dis
 		return
 	}
 
-	err = cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
+	err = s.cache.SetSnapshot(context.Background(), "__REFERENCE_SNAPSHOT__", snap)
 	if err != nil {
 		slog.Error("Failed setting reference snapshot", "error", err)
 	}
-	nodeIDs := cache.GetStatusKeys()
+	nodeIDs := s.cache.GetStatusKeys()
 	slog.Debug("node IDs", "nodeIDs", nodeIDs)
 
 	for _, nodeID := range nodeIDs {
-		err = cache.SetSnapshot(context.Background(), nodeID, snap)
+		err = s.cache.SetSnapshot(context.Background(), nodeID, snap)
 		if err != nil {
 			slog.Error("Failed setting snapshot", "nodeID", nodeID, "error", err)
 		}

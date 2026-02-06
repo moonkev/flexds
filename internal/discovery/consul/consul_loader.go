@@ -7,16 +7,15 @@ import (
 	"net/http"
 	"sort"
 
-	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/discovery/consul/watcher"
 	"github.com/moonkev/flexds/internal/server"
-	"github.com/moonkev/flexds/internal/xds"
+	"github.com/moonkev/flexds/internal/types"
 )
 
-// DiscoveryConfig Config holds the application configuration
-type DiscoveryConfig struct {
+// Config Config holds the application configuration
+type Config struct {
 	ConsulAddr      string
 	WaitTimeSec     int
 	WatcherStrategy string // "immediate", "debounce", or "batch"
@@ -44,7 +43,7 @@ func NewClient(addr string) (*consulapi.Client, error) {
 
 // WatchConsulBlocking watches for changes in the Consul service catalog using the configured watcher strategy
 // selected strategy can be "immediate", "debounce", or "batch"
-func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.SnapshotCache, cfg *DiscoveryConfig) {
+func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregator *discovery.DiscoveredServiceAggregator) {
 
 	client, err := NewClient(addr)
 	if err != nil {
@@ -57,7 +56,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.Snapsho
 		slog.Debug("Processing services", "count", len(services), "services", services)
 		server.MetricServicesDiscovered.Set(float64(len(services)))
 
-		var discoveredServices []*discovery.DiscoveredService
+		var discoveredServices []*types.DiscoveredService
 
 		for _, svc := range services {
 			entries, _, err := client.Health().Service(svc, "", true, nil)
@@ -77,7 +76,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.Snapsho
 			})
 
 			// Convert Consul entries to discovery model
-			instances := make([]*discovery.ServiceInstance, 0, len(entries))
+			instances := make([]types.ServiceInstance, 0, len(entries))
 			for _, e := range entries {
 				addr := e.Service.Address
 				if addr == "" {
@@ -86,7 +85,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.Snapsho
 				if addr == "" {
 					continue
 				}
-				instances = append(instances, &discovery.ServiceInstance{
+				instances = append(instances, types.ServiceInstance{
 					Address: addr,
 					Port:    e.Service.Port,
 				})
@@ -102,12 +101,13 @@ func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.Snapsho
 			}
 
 			// Parse routes from the most recently modified entry's metadata
-			var routes []discovery.RoutePattern
+			var routes []types.RoutePattern
 			if len(entries) > 0 {
-				routes = ParseServiceRoutes(entries[0])
+				headEntry := entries[0]
+				routes = discovery.ParseServiceRoutes(headEntry.Service.Service, headEntry.Service.Meta)
 			}
 
-			discoveredServices = append(discoveredServices, &discovery.DiscoveredService{
+			discoveredServices = append(discoveredServices, &types.DiscoveredService{
 				Name:        svc,
 				Instances:   instances,
 				Routes:      routes,
@@ -115,14 +115,12 @@ func WatchConsulBlocking(ctx context.Context, addr string, cache cachev3.Snapsho
 			})
 		}
 
-		xds.BuildAndPushSnapshot(cache, discoveredServices)
-		return nil
+		return aggregator.UpdateServices("consul_loader", discoveredServices)
 	}
 
 	// Create the appropriate watcher based on a configured strategy
 	watcherCfg := &watcher.WatcherConfig{
 		Client:      client,
-		Cache:       cache,
 		WaitTimeSec: cfg.WaitTimeSec,
 		Handler:     handler,
 	}
