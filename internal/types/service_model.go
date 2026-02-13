@@ -23,6 +23,7 @@ type RoutePattern struct {
 type DiscoveredService struct {
 	Name        string
 	EnableHTTP2 bool
+	EnableTLS   bool
 	Instances   []ServiceInstance
 	Routes      []RoutePattern // Routing patterns for this service
 }

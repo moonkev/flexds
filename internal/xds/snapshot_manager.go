@@ -13,6 +13,8 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -102,7 +104,40 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 		// Add HTTP/2 protocol options if the service specifies http2 metadata or is detected as gRPC
 		if svc.EnableHTTP2 {
 			slog.Debug("configuring HTTP/2 support", "service", svc.Name)
-			cl.Http2ProtocolOptions = &core.Http2ProtocolOptions{}
+			httpOpts := &upstreamhttp.HttpProtocolOptions{
+				UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
+					ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
+						ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
+							Http2ProtocolOptions: &core.Http2ProtocolOptions{},
+						},
+					},
+				},
+			}
+			httpOptsAny, err := anypb.New(httpOpts)
+			if err != nil {
+				panic(err)
+			}
+			cl.TypedExtensionProtocolOptions = map[string]*anypb.Any{
+				"envoy.upstreams.http.http_protocol_options": httpOptsAny,
+			}
+		}
+
+		if svc.EnableTLS {
+			slog.Debug("configuring TLS support", "service", svc.Name)
+			tlsContext := &tls.UpstreamTlsContext{
+				AutoHostSni: true,
+				// No validation context = no cert verification
+			}
+			tlsContextAny, err := anypb.New(tlsContext)
+			if err != nil {
+				panic(err)
+			}
+			cl.TransportSocket = &core.TransportSocket{
+				Name: "envoy.transport_sockets.tls",
+				ConfigType: &core.TransportSocket_TypedConfig{
+					TypedConfig: tlsContextAny,
+				},
+			}
 		}
 
 		clusters = append(clusters, cl)
@@ -129,8 +164,7 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 					},
 					Substitution: regexReplacement,
 				}
-				slog.Debug(
-					"configuring regex rewrite", "service", svc.Name, "pattern", regexRewrite, "substitution", regexReplacement)
+				slog.Debug("configuring regex rewrite", "service", svc.Name, "pattern", regexRewrite, "substitution", regexReplacement)
 			} else if prefixRewrite != "" {
 				ra.PrefixRewrite = prefixRewrite
 				slog.Debug("configuring prefix rewrite", "service", svc.Name, "prefixRewrite", prefixRewrite)
@@ -144,8 +178,10 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 				if headerName != "" && headerValue != "" {
 					routeMatch.Headers = []*route.HeaderMatcher{{
 						Name: headerName,
-						HeaderMatchSpecifier: &route.HeaderMatcher_ExactMatch{
-							ExactMatch: headerValue,
+						HeaderMatchSpecifier: &route.HeaderMatcher_StringMatch{
+							StringMatch: &matcher.StringMatcher{
+								MatchPattern: &matcher.StringMatcher_Exact{Exact: headerValue},
+							},
 						},
 					}}
 				}

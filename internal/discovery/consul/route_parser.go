@@ -1,4 +1,4 @@
-package discovery
+package consul
 
 import (
 	"fmt"
@@ -79,12 +79,6 @@ func ParseServiceRoutes(svc string, meta map[string]string) []types.RoutePattern
 		}
 		if v, ok := routeConfig["regex_replacement"]; ok {
 			rp.RegexReplacement = v
-		}
-
-		// Set defaults if not provided
-		if rp.PathPrefix == "" {
-			slog.Warn("No path prefix provided for route", "route", rp.Name)
-			continue
 		}
 
 		routes = append(routes, rp)

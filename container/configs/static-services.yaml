@@ -1,10 +1,17 @@
 - name: "envoy-admin"
   instances:
-    - host: "envoy-proxy-1"
+    - host: "127.0.0.1"
       port: 19000
-    - host: "envoy-proxy-2"
-      port: 19000
-  meta:
-    route_1_match_type: "path"
-    route_1_path_prefix: "/envoy-admin"
-    route_1_prefix_rewrite: "/"
+  routes:
+    - match_type: "path"
+      path_prefix: "/envoy-admin"
+      prefix_rewrite: "/"
+- name: "envoy-io"
+  instances:
+    - host: "envoyproxy.io"
+      port: 443
+  tls: true
+  routes:
+    - match_type: "path"
+      path_prefix: "/docs"
+      prefix_rewrite: "/docs"

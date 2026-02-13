@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -13,14 +14,49 @@ type Config struct {
 	ConfigPath string
 }
 
+type Route struct {
+	MatchType        string `yaml:"match_type"`
+	PathPrefix       string `yaml:"path_prefix"`
+	PrefixRewrite    string `yaml:"prefix_rewrite"`
+	RegexRewrite     string `yaml:"regex_rewrite"`
+	RegexReplacement string `yaml:"regex_replacement"`
+	HeaderName       string `yaml:"header_name"`
+	HeaderValue      string `yaml:"header_value"`
+	Http2            bool   `yaml:"http2"`
+	Tls              bool   `yaml:"tls"`
+}
+
 type Service struct {
 	Name      string `yaml:"name"`
 	Instances []struct {
 		Host string `yaml:"host"`
 		Port int    `yaml:"port"`
 	} `yaml:"instances"`
-	Meta  map[string]string `yaml:"meta"`
-	Http2 bool              `yaml:"http2"`
+	Routes []Route `yaml:"routes"`
+	Http2  bool    `yaml:"http2"`
+	Tls    bool    `yaml:"tls"`
+}
+
+func parseRoutes(service *Service) []types.RoutePattern {
+
+	var routes = make([]types.RoutePattern, 0, len(service.Routes))
+	for routeNum, route := range service.Routes {
+		slog.Debug("parsing route", "loader", "yaml", "service", service.Name, "route_num", routeNum)
+		rp := types.RoutePattern{
+			Name:             fmt.Sprintf("%s-route-%d", service.Name, routeNum),
+			MatchType:        route.MatchType,
+			PathPrefix:       route.PathPrefix,
+			PrefixRewrite:    route.PrefixRewrite,
+			RegexRewrite:     route.RegexRewrite,
+			RegexReplacement: route.RegexReplacement,
+			HeaderName:       route.HeaderName,
+			HeaderValue:      route.HeaderValue,
+			Hosts:            []string{"*"},
+		}
+
+		routes = append(routes, rp)
+	}
+	return routes
 }
 
 func LoadConfig(config Config, aggregator *discovery.DiscoveredServiceAggregator) error {
@@ -46,12 +82,15 @@ func LoadConfig(config Config, aggregator *discovery.DiscoveredServiceAggregator
 				Port:    inst.Port,
 			})
 		}
-		routes := discovery.ParseServiceRoutes(svc.Name, svc.Meta)
+
+		routes := parseRoutes(&svc)
+
 		discoveredServices = append(discoveredServices, &types.DiscoveredService{
 			Name:        svc.Name,
 			Instances:   instances,
 			Routes:      routes,
 			EnableHTTP2: svc.Http2,
+			EnableTLS:   svc.Tls,
 		})
 	}
 	slog.Info("Loaded services from YAML config",

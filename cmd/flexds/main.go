@@ -17,6 +17,7 @@ import (
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/discovery/consul"
+	"github.com/moonkev/flexds/internal/discovery/marathon"
 	"github.com/moonkev/flexds/internal/discovery/yaml"
 	"github.com/moonkev/flexds/internal/server"
 	"github.com/moonkev/flexds/internal/xds"
@@ -38,6 +39,10 @@ func main() {
 	var watcherStrategy string
 	var yamlDiscovery bool
 	var yamlFile string
+	var marathonDiscovery bool
+	var marathonAddr string
+	var marathonCredsPath string
+	var marathonPollInterval time.Duration
 
 	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
 	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
@@ -47,16 +52,25 @@ func main() {
 	flag.StringVar(&watcherStrategy, "consul-watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
 	flag.BoolVar(&yamlDiscovery, "yaml", false, "Use YAML file for service discovery")
 	flag.StringVar(&yamlFile, "yaml-file", "", "path to YAML configuration file (required when discovery=yaml)")
+	flag.BoolVar(&marathonDiscovery, "marathon", false, "Use Marathon for service discovery")
+	flag.StringVar(&marathonAddr, "marathon-addr", "http://localhost:8080", "marathon HTTP address")
+	flag.StringVar(&marathonCredsPath, "marathon-creds-path", "", "path to file containing marathon credentials (username:password)")
+	flag.DurationVar(&marathonPollInterval, "marathon-poll-interval", 30*time.Second, "interval between marathon service polls")
 	flag.Parse()
 
 	// Validate flags
-	if !consulDiscovery && !yamlDiscovery {
-		slog.Error("at least one discovery mode must be enabled: -consul or -yaml")
+	if !consulDiscovery && !yamlDiscovery && !marathonDiscovery {
+		slog.Error("at least one discovery mode must be enabled: -consul|-yaml|-marathon")
 		os.Exit(1)
 	}
 
 	if yamlDiscovery && yamlFile == "" {
 		slog.Error("yaml-file must be specified when using yaml discovery mode")
+		os.Exit(1)
+	}
+
+	if marathonDiscovery && marathonAddr == "" {
+		slog.Error("marathon-addr must be specified when using marathon discovery mode")
 		os.Exit(1)
 	}
 
@@ -129,6 +143,18 @@ func main() {
 		yamlConfig := yaml.Config{ConfigPath: yamlFile}
 		if err := yaml.LoadConfig(yamlConfig, aggregator); err != nil {
 			slog.Error("failed to load YAML config", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	if marathonDiscovery {
+		marathonConfig := marathon.Config{
+			URL:                 marathonAddr,
+			CredentialsFilePath: marathonCredsPath,
+			Interval:            marathonPollInterval,
+		}
+		if err := marathon.LoadConfig(ctx, marathonConfig, aggregator); err != nil {
+			slog.Error("failed to load marathon config", "error", err)
 			os.Exit(1)
 		}
 	}

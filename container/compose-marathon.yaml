@@ -1,0 +1,150 @@
+version: "3"
+
+networks:
+  flexds-compose-marathon:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.121.0/24
+
+services:
+  zookeeper:
+    image: zookeeper:3.4.14
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=0.0.0.0:2888:3888
+
+  mesos-master:
+    image: mesosphere/mesos-master:1.7.1
+    command:
+      - "--ip=0.0.0.0"
+      - "--work_dir=/tmp/mesos"
+      - "--quorum=1"
+      - "--zk=zk://zookeeper:2181/mesos"
+    ports:
+      - "5050:5050"
+    networks:
+      flexds-compose-marathon:
+        ipv4_address: 172.16.121.3
+    volumes:
+      - /var/log/mesos/master
+
+  mesos-agent:
+    image: mesosphere/mesos-slave:1.7.1
+    depends_on:
+      - mesos-master
+    command:
+      - "--master=zk://zookeeper:2181/mesos"
+      - "--work_dir=/var/lib/mesos"
+      - "--log_dir=/var/log/mesos"
+      - "--no-systemd_enable_support"
+      - "--launcher=posix"
+    ports:
+      - "5051:5051"
+      - "2005:2005"
+    networks:
+      flexds-compose-marathon:
+        ipv4_address: 172.16.121.4
+
+
+  marathon:
+    image: mesosphere/marathon:v1.4.5
+    ports:
+      - "8081:8080"
+    networks:
+      flexds-compose-marathon:
+        ipv4_address: 172.16.121.7
+    environment:
+      MARATHON_ZK: 'zk://zookeeper:2181/marathon'
+      MARATHON_MASTER: 'zk://zookeeper:2181/mesos'
+      MARATHON_EVENT_SUBSCRIBER: 'http_callback'
+      MARATHON_TASK_LAUNCH_TIMEOUT: '300000'
+      MARATHON_HTTP_CREDENTIALS: 'marathon:secret'
+
+  flexds:
+    build:
+      context: ..
+      dockerfile: container/Containerfile
+    container_name: flexds
+    command:
+      - "-marathon"
+      - "-marathon-addr"
+      - "http://marathon:8080"
+      - "-marathon-creds-path"
+      - "/etc/flexds/credentials.txt"
+      - "-ads-port"
+      - "18000"
+      - "-admin-port"
+      - "19005"
+      - "-debug"
+    volumes:
+      - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
+      - ./configs/marathon-creds.txt:/etc/flexds/credentials.txt:ro
+    networks:
+      - flexds-compose-marathon
+    environment:
+      - GOMAXPROCS=2
+    ports:
+      - "18000:18000" # ADS gRPC
+      - "19005:19005" # admin HTTP
+
+  envoy-proxy-1:
+    image: envoyproxy/envoy:v1.36.4
+    container_name: envoy-proxy-1
+    depends_on:
+      - flexds
+    volumes:
+      - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
+    ports:
+      - "18080:18080"
+      - "19000:19000"
+    command:
+      - "-c"
+      - "/etc/envoy/bootstrap.yaml"
+      - "--service-node"
+      - "envoy-proxy-1"
+      - "--log-level"
+      - "info"
+    networks:
+      - flexds-compose-marathon
+
+  rest-service-1:
+    build:
+      context: ./rest-service
+      dockerfile: Containerfile
+    container_name: rest-service-1
+    ports:
+      - "8080:8080"
+    networks:
+      - flexds-compose-marathon
+    environment:
+      - FLASK_ENV=production
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=hello-service
+      - SERVICE_ID=hello-service-1:8080
+      - SERVICE_PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  grpc-service-1:
+    build:
+      context: ./grpc-service
+      dockerfile: Containerfile
+    container_name: grpc-service-1
+    ports:
+      - "9090:9090"
+    networks:
+      - flexds-compose-marathon
+    environment:
+      - CONSUL_HOST=consul-agent
+      - CONSUL_PORT=8500
+      - SERVICE_NAME=grpc-service
+      - SERVICE_ID=grpc-service-1:9090

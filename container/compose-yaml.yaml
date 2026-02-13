@@ -1,3 +1,7 @@
+networks:
+  flexds-compose-yaml:
+    driver: bridge
+
 services:
   flexds:
     build:
@@ -16,7 +20,7 @@ services:
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
     networks:
-      - flexds-net
+      - flexds-compose-yaml
     environment:
       - GOMAXPROCS=2
     ports:
@@ -41,27 +45,7 @@ services:
       - "--log-level"
       - "info"
     networks:
-      - flexds-net
-
-  envoy-proxy-2:
-    image: envoyproxy/envoy:v1.36.4
-    container_name: envoy-proxy-2
-    depends_on:
-      - flexds
-    volumes:
-      - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
-    ports:
-      - "28080:18080"
-      - "29000:19000"
-    command:
-      - "-c"
-      - "/etc/envoy/bootstrap.yaml"
-      - "--service-node"
-      - "envoy-proxy-2"
-      - "--log-level"
-      - "info"
-    networks:
-      - flexds-net
+      - flexds-compose-yaml
 
   rest-service-1:
     build:
@@ -71,37 +55,13 @@ services:
     ports:
       - "8080:8080"
     networks:
-      - flexds-net
+      - flexds-compose-yaml
     environment:
       - FLASK_ENV=production
       - CONSUL_HOST=consul-agent
       - CONSUL_PORT=8500
       - SERVICE_NAME=hello-service
       - SERVICE_ID=hello-service-1:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      - consul-agent
-
-  rest-service-2:
-    build:
-      context: ./rest-service
-      dockerfile: Containerfile
-    container_name: rest-service-2
-    ports:
-      - "8081:8080"
-    networks:
-      - flexds-net
-    environment:
-      - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-2:8080
       - SERVICE_PORT=8080
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -119,7 +79,7 @@ services:
     ports:
       - "9090:9090"
     networks:
-      - flexds-net
+      - flexds-compose-yaml
     environment:
       - CONSUL_HOST=consul-agent
       - CONSUL_PORT=8500
@@ -127,24 +87,3 @@ services:
       - SERVICE_ID=grpc-service-1:9090
     depends_on:
       - consul-agent
-
-  grpc-service-2:
-    build:
-      context: ./grpc-service
-      dockerfile: Containerfile
-    container_name: grpc-service-2
-    ports:
-      - "9091:9090"
-    networks:
-      - flexds-net
-    environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-2:9090
-    depends_on:
-      - consul-agent
-
-networks:
-  flexds-net:
-    driver: bridge

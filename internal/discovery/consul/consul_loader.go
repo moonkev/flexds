@@ -104,7 +104,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 			var routes []types.RoutePattern
 			if len(entries) > 0 {
 				headEntry := entries[0]
-				routes = discovery.ParseServiceRoutes(headEntry.Service.Service, headEntry.Service.Meta)
+				routes = ParseServiceRoutes(headEntry.Service.Service, headEntry.Service.Meta)
 			}
 
 			discoveredServices = append(discoveredServices, &types.DiscoveredService{

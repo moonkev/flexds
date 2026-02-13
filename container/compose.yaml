@@ -12,7 +12,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_BIND_INTERFACE=eth0
 
@@ -31,7 +31,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_BIND_INTERFACE=eth0
 
@@ -50,7 +50,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_BIND_INTERFACE=eth0
 
@@ -69,7 +69,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_BIND_INTERFACE=eth0
 
@@ -93,7 +93,7 @@ services:
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - GOMAXPROCS=2
     ports:
@@ -120,7 +120,7 @@ services:
       - "--log-level"
       - "info"
     networks:
-      - flexds-net
+      - flexds-compose
 
   envoy-proxy-2:
     image: envoyproxy/envoy:v1.36.4
@@ -140,7 +140,7 @@ services:
       - "--log-level"
       - "info"
     networks:
-      - flexds-net
+      - flexds-compose
 
   rest-service-1:
     build:
@@ -150,7 +150,7 @@ services:
     ports:
       - "8080:8080"
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - FLASK_ENV=production
       - CONSUL_HOST=consul-agent
@@ -174,7 +174,7 @@ services:
     ports:
       - "8081:8080"
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - FLASK_ENV=production
       - CONSUL_HOST=consul-agent
@@ -198,7 +198,7 @@ services:
     ports:
       - "9090:9090"
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_HOST=consul-agent
       - CONSUL_PORT=8500
@@ -215,7 +215,7 @@ services:
     ports:
       - "9091:9090"
     networks:
-      - flexds-net
+      - flexds-compose
     environment:
       - CONSUL_HOST=consul-agent
       - CONSUL_PORT=8500
@@ -225,5 +225,5 @@ services:
       - consul-agent
 
 networks:
-  flexds-net:
+  flexds-compose:
     driver: bridge
