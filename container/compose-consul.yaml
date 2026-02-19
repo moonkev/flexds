@@ -6,11 +6,6 @@ services:
     ports:
       - "8500:8500"
       - "8600:8600/udp"
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-net
     environment:
@@ -25,11 +20,6 @@ services:
       - "8601:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-net
     environment:
@@ -44,11 +34,6 @@ services:
       - "8602:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-net
     environment:
@@ -63,11 +48,6 @@ services:
       - "18600:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-net
     environment:
@@ -115,7 +95,7 @@ services:
     depends_on:
       - flexds
     volumes:
-      - ./envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
+      - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
       - "28080:18080"
       - "29000:19000"
@@ -140,16 +120,9 @@ services:
       - flexds-net
     environment:
       - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-1:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - CONSUL_REGISTER=true
+      - SERVICE_NAME=rest-service
+      - CONTAINER_NAME=rest-service-1
     depends_on:
       - consul-agent
 
@@ -164,16 +137,9 @@ services:
       - flexds-net
     environment:
       - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-2:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - CONSUL_REGISTER=true
+      - SERVICE_NAME=rest-service
+      - CONTAINER_NAME=rest-service-2
     depends_on:
       - consul-agent
 
@@ -187,10 +153,9 @@ services:
     networks:
       - flexds-net
     environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
+      - CONSUL_REGISTER=true
       - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-1:9090
+      - CONTAINER_NAME=grpc-service-1
     depends_on:
       - consul-agent
 
@@ -204,10 +169,9 @@ services:
     networks:
       - flexds-net
     environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
+      - CONSUL_REGISTER=true
       - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-2:9090
+      - CONTAINER_NAME=grpc-service-2
     depends_on:
       - consul-agent
 

@@ -1,4 +1,4 @@
-package server
+package xds
 
 import (
 	"context"

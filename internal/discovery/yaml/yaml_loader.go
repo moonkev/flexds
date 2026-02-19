@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/moonkev/flexds/internal/common/config"
+	"github.com/moonkev/flexds/internal/common/types"
 	"github.com/moonkev/flexds/internal/discovery"
-	"github.com/moonkev/flexds/internal/types"
 	"go.yaml.in/yaml/v2"
 )
 
@@ -32,9 +33,10 @@ type Service struct {
 		Host string `yaml:"host"`
 		Port int    `yaml:"port"`
 	} `yaml:"instances"`
-	Routes []Route `yaml:"routes"`
-	Http2  bool    `yaml:"http2"`
-	Tls    bool    `yaml:"tls"`
+	Routes         []Route         `yaml:"routes"`
+	Http2          bool            `yaml:"http2"`
+	Tls            bool            `yaml:"tls"`
+	DnsRefreshRate config.Duration `yaml:"dns_refresh_rate"`
 }
 
 func parseRoutes(service *Service) []types.RoutePattern {
@@ -86,11 +88,12 @@ func LoadConfig(config Config, aggregator *discovery.DiscoveredServiceAggregator
 		routes := parseRoutes(&svc)
 
 		discoveredServices = append(discoveredServices, &types.DiscoveredService{
-			Name:        svc.Name,
-			Instances:   instances,
-			Routes:      routes,
-			EnableHTTP2: svc.Http2,
-			EnableTLS:   svc.Tls,
+			Name:           svc.Name,
+			Instances:      instances,
+			Routes:         routes,
+			EnableHTTP2:    svc.Http2,
+			EnableTLS:      svc.Tls,
+			DnsRefreshRate: svc.DnsRefreshRate.ToDuration(),
 		})
 	}
 	slog.Info("Loaded services from YAML config",

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/moonkev/flexds/internal/common/types"
 	"github.com/moonkev/flexds/internal/discovery"
-	"github.com/moonkev/flexds/internal/types"
 )
 
 type Config struct {
@@ -179,7 +179,7 @@ func convertToDiscoveredServices(apps []marathonApp) []*types.DiscoveredService 
 			ds := &types.DiscoveredService{
 				Name:      serviceName,
 				Instances: instances,
-				Routes:    buildRoutes(serviceName),
+				Routes:    buildRoutes(serviceName, portDef.Labels),
 			}
 
 			if portDef.Name == "grpc" || portDef.Labels["http2"] == "true" {
@@ -202,13 +202,19 @@ func getTaskAddress(task marathonTask) string {
 	return task.Host
 }
 
-func buildRoutes(serviceName string) []types.RoutePattern {
+func buildRoutes(serviceName string, labels map[string]string) []types.RoutePattern {
 	routes := make([]types.RoutePattern, 0)
+	var routingKey string
+	if labelKey, ok := labels["routing_key"]; ok && labelKey != "" {
+		routingKey = labelKey
+	} else {
+		routingKey = serviceName
+	}
 
 	prefixRoutePattern := types.RoutePattern{
 		Name:          fmt.Sprintf("%s-route-prefix", serviceName),
 		MatchType:     "path",
-		PathPrefix:    fmt.Sprintf("/%s", serviceName),
+		PathPrefix:    fmt.Sprintf("/%s", routingKey),
 		PrefixRewrite: "/",
 	}
 	routes = append(routes, prefixRoutePattern)
@@ -217,7 +223,7 @@ func buildRoutes(serviceName string) []types.RoutePattern {
 		Name:        fmt.Sprintf("%s-route-header", serviceName),
 		MatchType:   "header",
 		HeaderName:  "destination_service",
-		HeaderValue: serviceName,
+		HeaderValue: routingKey,
 	}
 	routes = append(routes, headerRoutePattern)
 

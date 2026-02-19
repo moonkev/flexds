@@ -6,11 +6,6 @@ services:
     ports:
       - "8500:8500"
       - "8600:8600/udp"
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-compose
     environment:
@@ -25,11 +20,6 @@ services:
       - "8601:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-compose
     environment:
@@ -44,11 +34,6 @@ services:
       - "8602:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-compose
     environment:
@@ -63,15 +48,68 @@ services:
       - "18600:8600/udp"
     depends_on:
       - consul-server-1
-    healthcheck:
-      test: ["CMD-SHELL", "consul status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - flexds-compose
     environment:
       - CONSUL_BIND_INTERFACE=eth0
+
+  zookeeper:
+    image: zookeeper:3.4.14
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - flexds-compose
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=0.0.0.0:2888:3888
+
+  mesos-master:
+    image: mesosphere/mesos-master:1.7.1
+    command:
+      - "--ip=0.0.0.0"
+      - "--work_dir=/tmp/mesos"
+      - "--quorum=1"
+      - "--zk=zk://zookeeper:2181/mesos"
+    ports:
+      - "5050:5050"
+    depends_on:
+      - zookeeper
+    networks:
+      - flexds-compose
+    volumes:
+      - /var/log/mesos/master
+
+  mesos-agent:
+    image: mesosphere/mesos-slave:1.7.1
+    command:
+      - "--master=zk://zookeeper:2181/mesos"
+      - "--work_dir=/var/lib/mesos"
+      - "--log_dir=/var/log/mesos"
+      - "--no-systemd_enable_support"
+      - "--launcher=posix"
+    ports:
+      - "5051:5051"
+      - "2005:2005"
+    depends_on:
+      - mesos-master
+    networks:
+      - flexds-compose
+
+  marathon:
+    image: mesosphere/marathon:v1.4.5
+    ports:
+      - "8081:8080"
+    depends_on:
+      - mesos-master
+    networks:
+      - flexds-compose
+    environment:
+      MARATHON_ZK: 'zk://zookeeper:2181/marathon'
+      MARATHON_MASTER: 'zk://zookeeper:2181/mesos'
+      MARATHON_EVENT_SUBSCRIBER: 'http_callback'
+      MARATHON_TASK_LAUNCH_TIMEOUT: '300000'
+      MARATHON_HTTP_CREDENTIALS: 'marathon:secret'
 
   flexds:
     build:
@@ -85,6 +123,11 @@ services:
       - "-yaml"
       - "-yaml-file"
       - "/etc/flexds/static-services.yaml"
+      - "-marathon"
+      - "-marathon-addr"
+      - "http://marathon:8080"
+      - "-marathon-creds-path"
+      - "/etc/flexds/credentials.txt"
       - "-ads-port"
       - "18000"
       - "-admin-port"
@@ -92,6 +135,7 @@ services:
       - "-debug"
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
+      - ./configs/marathon-creds.txt:/etc/flexds/credentials.txt:ro
     networks:
       - flexds-compose
     environment:
@@ -101,12 +145,19 @@ services:
       - "19005:19005" # admin HTTP
     depends_on:
       - consul-agent
+      - marathon
 
   envoy-proxy-1:
     image: envoyproxy/envoy:v1.36.4
     container_name: envoy-proxy-1
     depends_on:
       - flexds
+      - rest-service-1
+      - rest-service-2
+      - rest-service-tls-1
+      - rest-service-tls-2
+      - grpc-service-1
+      - grpc-service-2
     volumes:
       - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
@@ -127,6 +178,12 @@ services:
     container_name: envoy-proxy-2
     depends_on:
       - flexds
+      - rest-service-1
+      - rest-service-2
+      - rest-service-tls-1
+      - rest-service-tls-2
+      - grpc-service-1
+      - grpc-service-2
     volumes:
       - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
@@ -148,21 +205,14 @@ services:
       dockerfile: Containerfile
     container_name: rest-service-1
     ports:
-      - "8080:8080"
+      - "38080:8080"
     networks:
       - flexds-compose
     environment:
       - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-1:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - CONSUL_REGISTER=true
+      - SERVICE_NAME=rest-service
+      - CONTAINER_NAME=rest-service-1
     depends_on:
       - consul-agent
 
@@ -172,21 +222,50 @@ services:
       dockerfile: Containerfile
     container_name: rest-service-2
     ports:
-      - "8081:8080"
+      - "48080:8080"
     networks:
       - flexds-compose
     environment:
       - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-2:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - CONSUL_REGISTER=true
+      - SERVICE_NAME=rest-service
+      - CONTAINER_NAME=rest-service-2
+    depends_on:
+      - consul-agent
+
+  rest-service-tls-1:
+    build:
+      context: ./rest-service
+      dockerfile: Containerfile
+    container_name: rest-service-tls-1
+    ports:
+      - "38443:8443"
+    networks:
+      - flexds-compose
+    environment:
+      - FLASK_ENV=production
+      - SERVICE_NAME=rest-service-tls
+      - SERVICE_PORT=8443
+      - USE_TLS=true
+      - CONTAINER_NAME=rest-service-tls-1
+    depends_on:
+      - consul-agent
+
+  rest-service-tls-2:
+    build:
+      context: ./rest-service
+      dockerfile: Containerfile
+    container_name: rest-service-tls-2
+    ports:
+      - "48443:8443"
+    networks:
+      - flexds-compose
+    environment:
+      - FLASK_ENV=production
+      - SERVICE_NAME=rest-service-tls
+      - SERVICE_PORT=8443
+      - USE_TLS=true
+      - CONTAINER_NAME=rest-service-tls-2
     depends_on:
       - consul-agent
 
@@ -196,14 +275,13 @@ services:
       dockerfile: Containerfile
     container_name: grpc-service-1
     ports:
-      - "9090:9090"
+      - "39090:9090"
     networks:
       - flexds-compose
     environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
+      - CONSUL_REGISTER=true
       - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-1:9090
+      - CONTAINER_NAME=grpc-service-1
     depends_on:
       - consul-agent
 
@@ -213,14 +291,13 @@ services:
       dockerfile: Containerfile
     container_name: grpc-service-2
     ports:
-      - "9091:9090"
+      - "49090:9090"
     networks:
       - flexds-compose
     environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
+      - CONSUL_REGISTER=true
       - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-2:9090
+      - CONTAINER_NAME=grpc-service-2
     depends_on:
       - consul-agent
 

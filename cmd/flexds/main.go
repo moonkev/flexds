@@ -15,11 +15,12 @@ import (
 
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/moonkev/flexds/internal/common/config"
+	"github.com/moonkev/flexds/internal/common/telemetry"
 	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/discovery/consul"
 	"github.com/moonkev/flexds/internal/discovery/marathon"
 	"github.com/moonkev/flexds/internal/discovery/yaml"
-	"github.com/moonkev/flexds/internal/server"
 	"github.com/moonkev/flexds/internal/xds"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -31,6 +32,7 @@ const (
 )
 
 func main() {
+
 	var adsPort int
 	var adminPort int
 	var debugLogging bool
@@ -43,6 +45,7 @@ func main() {
 	var marathonAddr string
 	var marathonCredsPath string
 	var marathonPollInterval time.Duration
+	var listenerPorts config.Uint32SliceFlag
 
 	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
 	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
@@ -56,7 +59,13 @@ func main() {
 	flag.StringVar(&marathonAddr, "marathon-addr", "http://localhost:8080", "marathon HTTP address")
 	flag.StringVar(&marathonCredsPath, "marathon-creds-path", "", "path to file containing marathon credentials (username:password)")
 	flag.DurationVar(&marathonPollInterval, "marathon-poll-interval", 30*time.Second, "interval between marathon service polls")
+	flag.Var(&listenerPorts, "listener-ports", "comma-separated list of listener ports (default: 18080)")
 	flag.Parse()
+
+	// Apply default listener port if none specified
+	if len(listenerPorts) == 0 {
+		listenerPorts = []uint32{18080}
+	}
 
 	// Validate flags
 	if !consulDiscovery && !yamlDiscovery && !marathonDiscovery {
@@ -83,22 +92,26 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Initialize metrics
-	server.InitMetrics()
+	telemetry.InitMetrics()
 
 	slog.Info("starting control plane with blocking queries", "consul", consulAddr)
 
 	// Create snapshot cache
 	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil)
-	snapshotManager := xds.NewSnapshotManager(snapshotCache)
+	xdsConfig := xds.Config{
+		Cache:         snapshotCache,
+		ListenerPorts: listenerPorts,
+	}
+	snapshotManager := xds.NewSnapshotManager(xdsConfig)
 	aggregator := discovery.NewDiscoveredServiceAggregator(snapshotManager)
 
 	// Create XDS server
 	slog.Info("creating XDS server")
-	callbacks := &server.ServerCallbacks{Cache: snapshotCache}
+	callbacks := &xds.ServerCallbacks{Cache: snapshotCache}
 	adsServer := serverv3.NewServer(context.Background(), snapshotCache, callbacks)
 	slog.Info("XDS server created")
 
-	// Setup context and channels
+	// Set up context and channels
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
@@ -106,10 +119,10 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		server.RunGRPC(ctx, adsServer, adsPort)
+		xds.RunGRPC(ctx, adsServer, adsPort)
 	}()
 
-	// Setup admin/metrics HTTP server
+	// Set up admin/metrics HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
@@ -159,7 +172,7 @@ func main() {
 		}
 	}
 
-	// Wait for shutdown signal
+	// Wait for a shutdown signal
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
@@ -184,7 +197,7 @@ func main() {
 		slog.Warn("shutdown timeout exceeded, forcing exit")
 	}
 
-	// Graceful shutdown of HTTP admin server
+	// Graceful shutdown of the HTTP admin server
 	shutdownCtx2, cancel3 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel3()
 	if err := admin.Shutdown(shutdownCtx2); err != nil {

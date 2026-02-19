@@ -12,6 +12,8 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	commondns "github.com/envoyproxy/go-control-plane/envoy/extensions/clusters/common/dns/v3"
+	dnscluster "github.com/envoyproxy/go-control-plane/envoy/extensions/clusters/dns/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
@@ -20,20 +22,29 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"github.com/moonkev/flexds/internal/server"
-	types2 "github.com/moonkev/flexds/internal/types"
+	"github.com/moonkev/flexds/internal/common/telemetry"
+	types2 "github.com/moonkev/flexds/internal/common/types"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 var version uint64 = 1
 
-type SnapshotManager struct {
-	cache cachev3.SnapshotCache
+type Config struct {
+	Cache         cachev3.SnapshotCache
+	ListenerPorts []uint32
 }
 
-func NewSnapshotManager(cache cachev3.SnapshotCache) *SnapshotManager {
-	return &SnapshotManager{cache: cache}
+type SnapshotManager struct {
+	cache         cachev3.SnapshotCache
+	listenerPorts []uint32
+}
+
+func NewSnapshotManager(config Config) *SnapshotManager {
+	return &SnapshotManager{
+		cache:         config.Cache,
+		listenerPorts: config.ListenerPorts,
+	}
 }
 
 // BuildAndPushSnapshot constructs XDS configuration from discovered services and pushes to Cache
@@ -56,14 +67,14 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 
 		clusterName := svc.Name
 
-		// Endpoints - build load assignment with hostname and port
+		// Endpoints - build load assignment with hostname and listenerPorts
 		lbs := make([]*endpoint.LbEndpoint, 0, len(svc.Instances))
 
 		for _, inst := range svc.Instances {
 			if inst.Address == "" {
 				continue
 			}
-			slog.Debug("Adding endpoint", "service", svc.Name, "address", inst.Address, "port", inst.Port)
+			slog.Debug("Adding endpoint", "service", svc.Name, "address", inst.Address, "listenerPorts", inst.Port)
 			lb := &endpoint.LbEndpoint{
 				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
 					Endpoint: &endpoint.Endpoint{
@@ -87,18 +98,35 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 		}
 		endpoints = append(endpoints, cla)
 
-		// Cluster (STRICT_DNS for hostname resolution)
-		// Load assignment provides the hostname and port for DNS resolution
+		// Create DnsCluster configuration
+		// AllAddressesInSingleEndpoint=false gives STRICT_DNS semantics (each address is a separate endpoint)
+		dnsClusterConfig := &dnscluster.DnsCluster{
+			DnsLookupFamily:              commondns.DnsLookupFamily_V4_ONLY,
+			RespectDnsTtl:                true,
+			AllAddressesInSingleEndpoint: false,
+		}
+		if svc.DnsRefreshRate > 0 {
+			dnsClusterConfig.DnsRefreshRate = durationpb.New(svc.DnsRefreshRate)
+			dnsClusterConfig.RespectDnsTtl = false
+		}
+		dnsClusterAny, err := anypb.New(dnsClusterConfig)
+		if err != nil {
+			slog.Error("Failed to marshal DnsCluster config", "error", err)
+			continue
+		}
+
+		// Cluster using ClusterType extension point with DnsCluster
 		cl := &cluster.Cluster{
 			Name:           clusterName,
 			ConnectTimeout: durationpb.New(2 * time.Second),
-			ClusterDiscoveryType: &cluster.Cluster_Type{
-				Type: cluster.Cluster_STRICT_DNS,
+			ClusterDiscoveryType: &cluster.Cluster_ClusterType{
+				ClusterType: &cluster.Cluster_CustomClusterType{
+					Name:        "envoy.clusters.dns",
+					TypedConfig: dnsClusterAny,
+				},
 			},
-			LoadAssignment:  cla,
-			LbPolicy:        cluster.Cluster_ROUND_ROBIN,
-			DnsLookupFamily: cluster.Cluster_V4_ONLY,
-			DnsRefreshRate:  durationpb.New(60 * time.Second),
+			LoadAssignment: cla,
+			LbPolicy:       cluster.Cluster_ROUND_ROBIN,
 		}
 
 		// Add HTTP/2 protocol options if the service specifies http2 metadata or is detected as gRPC
@@ -118,15 +146,30 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 				panic(err)
 			}
 			cl.TypedExtensionProtocolOptions = map[string]*anypb.Any{
-				"envoy.upstreams.http.http_protocol_options": httpOptsAny,
+				"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": httpOptsAny,
 			}
 		}
 
 		if svc.EnableTLS {
 			slog.Debug("configuring TLS support", "service", svc.Name)
+
+			// Set ALPN based on whether HTTP/2 is enabled
+			var alpnProtocols []string
+			if svc.EnableHTTP2 {
+				alpnProtocols = []string{"h2", "http/1.1"}
+			} else {
+				alpnProtocols = []string{"http/1.1"}
+			}
+
 			tlsContext := &tls.UpstreamTlsContext{
-				AutoHostSni: true,
-				// No validation context = no cert verification
+				CommonTlsContext: &tls.CommonTlsContext{
+					AlpnProtocols: alpnProtocols,
+					ValidationContextType: &tls.CommonTlsContext_ValidationContext{
+						ValidationContext: &tls.CertificateValidationContext{
+							TrustChainVerification: tls.CertificateValidationContext_ACCEPT_UNTRUSTED,
+						},
+					},
+				},
 			}
 			tlsContextAny, err := anypb.New(tlsContext)
 			if err != nil {
@@ -267,17 +310,26 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 		return
 	}
 
-	ln := &listener.Listener{
-		Name:    "listener_0",
-		Address: &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "0.0.0.0", PortSpecifier: &core.SocketAddress_PortValue{PortValue: 18080}}}},
-		FilterChains: []*listener.FilterChain{{
-			Filters: []*listener.Filter{{
-				Name:       xdstype.HTTPConnectionManager,
-				ConfigType: &listener.Filter_TypedConfig{TypedConfig: hcmAny},
+	for _, listenerPort := range s.listenerPorts {
+		ln := &listener.Listener{
+			Name: fmt.Sprintf("listener_%d", listenerPort),
+			Address: &core.Address{
+				Address: &core.Address_SocketAddress{
+					SocketAddress: &core.SocketAddress{
+						Address:       "0.0.0.0",
+						PortSpecifier: &core.SocketAddress_PortValue{PortValue: listenerPort},
+					},
+				},
+			},
+			FilterChains: []*listener.FilterChain{{
+				Filters: []*listener.Filter{{
+					Name:       xdstype.HTTPConnectionManager,
+					ConfigType: &listener.Filter_TypedConfig{TypedConfig: hcmAny},
+				}},
 			}},
-		}},
+		}
+		listeners = append(listeners, ln)
 	}
-	listeners = append(listeners, ln)
 
 	// Build snapshot
 	snapVer := fmt.Sprintf("%d", atomic.AddUint64(&version, 1))
@@ -313,5 +365,5 @@ func (s *SnapshotManager) BuildAndPushSnapshot(services []*types2.DiscoveredServ
 		"endpoints", len(endpoints),
 		"routes", len(routes),
 		"virtualHosts", len(virtualHosts))
-	server.MetricSnapshotsPushed.Inc()
+	telemetry.MetricSnapshotsPushed.Inc()
 }

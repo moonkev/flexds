@@ -50,7 +50,6 @@ services:
       flexds-compose-marathon:
         ipv4_address: 172.16.121.4
 
-
   marathon:
     image: mesosphere/marathon:v1.4.5
     ports:
@@ -78,6 +77,8 @@ services:
       - "/etc/flexds/credentials.txt"
       - "-ads-port"
       - "18000"
+      - "-listener-ports"
+      - "18080,18081"
       - "-admin-port"
       - "19005"
       - "-debug"
@@ -111,40 +112,3 @@ services:
       - "info"
     networks:
       - flexds-compose-marathon
-
-  rest-service-1:
-    build:
-      context: ./rest-service
-      dockerfile: Containerfile
-    container_name: rest-service-1
-    ports:
-      - "8080:8080"
-    networks:
-      - flexds-compose-marathon
-    environment:
-      - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-1:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  grpc-service-1:
-    build:
-      context: ./grpc-service
-      dockerfile: Containerfile
-    container_name: grpc-service-1
-    ports:
-      - "9090:9090"
-    networks:
-      - flexds-compose-marathon
-    environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-1:9090

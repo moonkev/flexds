@@ -23,8 +23,12 @@ curl -u marathon:secret -H "Content-Type: application/json" -X PUT http://localh
           "port": 20000,
           "protocol": "tcp",
           "name": "http",
-          "labels": {}
+          "labels": {
+            "routing_key": "alt-routing-key"
+          }
         }
       ]
     }
 '
+
+dynamic_active_clusters,dynamic_endpoint_configs,dynamic_listeners,dynamic_route_configs

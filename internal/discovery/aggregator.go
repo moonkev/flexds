@@ -1,7 +1,7 @@
 package discovery
 
 import (
-	"github.com/moonkev/flexds/internal/types"
+	"github.com/moonkev/flexds/internal/common/types"
 	"github.com/moonkev/flexds/internal/xds"
 )
 

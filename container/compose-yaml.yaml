@@ -16,6 +16,8 @@ services:
       - "18000"
       - "-admin-port"
       - "19005"
+      - "-listener-ports"
+      - "18080,18081"
       - "-debug"
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
@@ -32,10 +34,13 @@ services:
     container_name: envoy-proxy-1
     depends_on:
       - flexds
+      - rest-service-tls-1
+      - rest-service-tls-2
     volumes:
       - ./configs/envoy-bootstrap.yaml:/etc/envoy/bootstrap.yaml:ro
     ports:
       - "18080:18080"
+      - "18081:18081"
       - "19000:19000"
     command:
       - "-c"
@@ -43,47 +48,48 @@ services:
       - "--service-node"
       - "envoy-proxy-1"
       - "--log-level"
-      - "info"
+      - "trace"
     networks:
       - flexds-compose-yaml
 
-  rest-service-1:
+  rest-service-tls-1:
     build:
       context: ./rest-service
       dockerfile: Containerfile
-    container_name: rest-service-1
+    container_name: rest-service-tls-1
     ports:
-      - "8080:8080"
+      - "8443:8443"
     networks:
       - flexds-compose-yaml
     environment:
       - FLASK_ENV=production
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=hello-service
-      - SERVICE_ID=hello-service-1:8080
-      - SERVICE_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      - consul-agent
+      - SERVICE_NAME=rest-service
+      - SERVICE_PORT=8443
+      - USE_TLS=true
 
-  grpc-service-1:
+  rest-service-tls-2:
     build:
-      context: ./grpc-service
+      context: ./rest-service
       dockerfile: Containerfile
-    container_name: grpc-service-1
+    container_name: rest-service-tls-2
     ports:
-      - "9090:9090"
+      - "8444:8443"
     networks:
       - flexds-compose-yaml
     environment:
-      - CONSUL_HOST=consul-agent
-      - CONSUL_PORT=8500
-      - SERVICE_NAME=grpc-service
-      - SERVICE_ID=grpc-service-1:9090
-    depends_on:
-      - consul-agent
+      - FLASK_ENV=production
+      - SERVICE_NAME=rest-service
+      - SERVICE_PORT=8443
+      - USE_TLS=true
+
+#  grpc-service-1:
+#    build:
+#      context: ./grpc-service
+#      dockerfile: Containerfile
+#    container_name: grpc-service-1
+#    ports:
+#      - "9090:9090"
+#    networks:
+#      - flexds-compose-yaml
+#    environment:
+#      - SERVICE_NAME=grpc-service

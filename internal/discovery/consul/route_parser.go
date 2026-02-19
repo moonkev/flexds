@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/moonkev/flexds/internal/types"
+	"github.com/moonkev/flexds/internal/common/types"
 )
 
 // ParseServiceRoutes reads service metadata to generate multiple routing patterns.

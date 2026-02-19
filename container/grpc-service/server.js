@@ -12,9 +12,10 @@ const proto = grpc.loadPackageDefinition(packageDef);
 const CONSUL_HOST = process.env.CONSUL_HOST || 'consul-agent';
 const CONSUL_PORT = process.env.CONSUL_PORT || 8500;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'grpc-service';
+const CONSUL_REGISTER = process.env.CONSUL_REGISTER?.toLowerCase() === 'true';
 const SERVICE_PORT = 9090;
-const SERVICE_ID = process.env.SERVICE_ID || `${SERVICE_NAME}:${SERVICE_PORT}`;
-const CONTAINER_NAME = process.env.HOSTNAME || os.hostname();
+const CONTAINER_NAME = process.env.CONTAINER_NAME || os.hostname();
+const SERVICE_ID = process.env.SERVICE_ID || `${CONTAINER_NAME}:${SERVICE_PORT}`;
 
 // Implement service methods
 const services = {
@@ -103,7 +104,9 @@ server.bindAsync(PORT, grpc.ServerCredentials.createInsecure(), (err, port) => {
   console.log(`gRPC server listening on ${PORT}`);
   
   // Register with Consul after server starts
-  registerWithConsul();
+  if (CONSUL_REGISTER){
+    registerWithConsul();
+  }
 });
 
 // Graceful shutdown

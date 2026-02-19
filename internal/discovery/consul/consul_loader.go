@@ -8,10 +8,10 @@ import (
 	"sort"
 
 	consulapi "github.com/hashicorp/consul/api"
+	"github.com/moonkev/flexds/internal/common/telemetry"
+	"github.com/moonkev/flexds/internal/common/types"
 	"github.com/moonkev/flexds/internal/discovery"
 	"github.com/moonkev/flexds/internal/discovery/consul/watcher"
-	"github.com/moonkev/flexds/internal/server"
-	"github.com/moonkev/flexds/internal/types"
 )
 
 // Config Config holds the application configuration
@@ -54,7 +54,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {
 		slog.Debug("Processing services", "count", len(services), "services", services)
-		server.MetricServicesDiscovered.Set(float64(len(services)))
+		telemetry.MetricServicesDiscovered.Set(float64(len(services)))
 
 		var discoveredServices []*types.DiscoveredService
 

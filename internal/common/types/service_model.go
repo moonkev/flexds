@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // ServiceInstance represents a discovered service instance
 type ServiceInstance struct {
 	Address string
@@ -21,9 +23,10 @@ type RoutePattern struct {
 
 // DiscoveredService represents a service with its instances and routing configuration
 type DiscoveredService struct {
-	Name        string
-	EnableHTTP2 bool
-	EnableTLS   bool
-	Instances   []ServiceInstance
-	Routes      []RoutePattern // Routing patterns for this service
+	Name           string
+	EnableHTTP2    bool
+	EnableTLS      bool
+	DnsRefreshRate time.Duration
+	Instances      []ServiceInstance
+	Routes         []RoutePattern // Routing patterns for this service
 }
