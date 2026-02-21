@@ -59,7 +59,6 @@ func (w *ImmediateWatcher) Watch(ctx context.Context) error {
 		for serviceName := range serviceMapping {
 			svcList = append(svcList, serviceName)
 		}
-		slog.Info("found services", "count", len(svcList), "services", svcList)
 
 		if err := w.cfg.Handler(svcList); err != nil {
 			slog.Error("handler error", "error", err)

@@ -19,13 +19,13 @@
       port: 8443
     - host: "rest-service-tls-2"
       port: 8443
-#- name: "grpc-service"
-#  dns_refresh_rate: "5m"
-#  http2: true
-#  routes:
-#    - match_type: "header"
-#      header_name: "X-Service"
-#      header_value: "grpc-service"
-#  instances:
-#    - host: "grpc-service-1"
-#      port: 9090
+- name: "grpc-service"
+  dns_refresh_rate: "5m"
+  http2: true
+  routes:
+    - match_type: "header"
+      header_name: "X-Service"
+      header_value: "grpc-service"
+  instances:
+    - host: "grpc-service-1"
+      port: 9090

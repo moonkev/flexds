@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -34,4 +35,31 @@ func (f *Uint32SliceFlag) Set(value string) error {
 		*f = append(*f, uint32(v))
 	}
 	return nil
+}
+
+// LogLevelFlag implements flag.Value for slog.Level
+type LogLevelFlag slog.Level
+
+func (f *LogLevelFlag) String() string {
+	return slog.Level(*f).String()
+}
+
+func (f *LogLevelFlag) Set(value string) error {
+	switch strings.ToLower(value) {
+	case "debug":
+		*f = LogLevelFlag(slog.LevelDebug)
+	case "info":
+		*f = LogLevelFlag(slog.LevelInfo)
+	case "warn", "warning":
+		*f = LogLevelFlag(slog.LevelWarn)
+	case "error":
+		*f = LogLevelFlag(slog.LevelError)
+	default:
+		return fmt.Errorf("invalid log level %q: must be debug, info, warn, or error", value)
+	}
+	return nil
+}
+
+func (f *LogLevelFlag) Level() slog.Level {
+	return slog.Level(*f)
 }

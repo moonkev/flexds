@@ -2,10 +2,10 @@ package consul
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
+	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/moonkev/flexds/internal/common/telemetry"
@@ -33,7 +33,7 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func NewClient(addr string) (*consulapi.Client, error) {
 	consulCfg := consulapi.DefaultConfig()
-	consulCfg.Address = fmt.Sprintf("http://%s", addr)
+	consulCfg.Address = addr
 
 	consulCfg.HttpClient = &http.Client{
 		Transport: &HeaderRoundTripper{Rt: http.DefaultTransport},
@@ -41,9 +41,9 @@ func NewClient(addr string) (*consulapi.Client, error) {
 	return consulapi.NewClient(consulCfg)
 }
 
-// WatchConsulBlocking watches for changes in the Consul service catalog using the configured watcher strategy
+// StartWatcher watches for changes in the Consul service catalog using the configured watcher strategy
 // selected strategy can be "immediate", "debounce", or "batch"
-func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregator *discovery.DiscoveredServiceAggregator) {
+func StartWatcher(ctx context.Context, addr string, cfg *Config, aggregator *discovery.DiscoveredServiceAggregator) {
 
 	client, err := NewClient(addr)
 	if err != nil {
@@ -53,7 +53,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 
 	// Create the service change handler that will be called when services change
 	handler := func(services []string) error {
-		slog.Debug("Processing services", "count", len(services), "services", services)
+		slog.Debug("processing consul services", "count", len(services))
 		telemetry.MetricServicesDiscovered.Set(float64(len(services)))
 
 		var discoveredServices []*types.DiscoveredService
@@ -74,6 +74,7 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 			sort.Slice(entries, func(i, j int) bool {
 				return entries[i].Service.ModifyIndex > entries[j].Service.ModifyIndex
 			})
+			latestEntryMeta := entries[0].Service.Meta
 
 			// Convert Consul entries to discovery model
 			instances := make([]types.ServiceInstance, 0, len(entries))
@@ -91,12 +92,24 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 				})
 			}
 			var enableHttp2 bool
+			var enableTLS bool
+			var dnsRefreshRate time.Duration
 
 			// Check explicit http2 metadata setting from the most recently modified entry
 			if len(entries) > 0 {
-				metadata := entries[0].Service.Meta
-				if val, ok := metadata["http2"]; ok && val == "true" {
+				if val, ok := latestEntryMeta["http2"]; ok && val == "true" {
 					enableHttp2 = true
+				}
+				if val, ok := latestEntryMeta["tls"]; ok && val == "true" {
+					enableTLS = true
+				}
+				if val, ok := latestEntryMeta["dns_refresh_rate"]; ok {
+					parsed, err := time.ParseDuration(val)
+					if err != nil {
+						slog.Warn("Invalid dns_refresh_rate value, using default", "value", val, "error", err)
+					} else {
+						dnsRefreshRate = parsed
+					}
 				}
 			}
 
@@ -104,14 +117,16 @@ func WatchConsulBlocking(ctx context.Context, addr string, cfg *Config, aggregat
 			var routes []types.RoutePattern
 			if len(entries) > 0 {
 				headEntry := entries[0]
-				routes = ParseServiceRoutes(headEntry.Service.Service, headEntry.Service.Meta)
+				routes = ParseServiceRoutes(headEntry.Service.Service, entries[0].Service.Meta)
 			}
 
 			discoveredServices = append(discoveredServices, &types.DiscoveredService{
-				Name:        svc,
-				Instances:   instances,
-				Routes:      routes,
-				EnableHTTP2: enableHttp2,
+				Name:           svc,
+				Instances:      instances,
+				Routes:         routes,
+				EnableHTTP2:    enableHttp2,
+				EnableTLS:      enableTLS,
+				DnsRefreshRate: dnsRefreshRate,
 			})
 		}
 

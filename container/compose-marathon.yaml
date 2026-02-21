@@ -81,7 +81,8 @@ services:
       - "18080,18081"
       - "-admin-port"
       - "19005"
-      - "-debug"
+      - "-log-level"
+      - "debug"
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
       - ./configs/marathon-creds.txt:/etc/flexds/credentials.txt:ro

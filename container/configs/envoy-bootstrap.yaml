@@ -36,6 +36,15 @@ dynamic_resources:
   cds_config:
     ads: {}
 
+stats_config:
+  use_all_default_tags: false
+  histogram_bucket_settings: []
+  stats_matcher:
+    exclusion_list:
+      patterns:
+        - prefix: "cluster."
+
+
 admin:
   access_log_path: "/tmp/admin_access.log"
   address:

@@ -25,47 +25,36 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const (
-	defaultConsulAddr = "localhost:8500"
-	defaultAdsPort    = 18000
-	defaultAdminPort  = 19005
-)
-
 func main() {
 
-	var adsPort int
-	var adminPort int
-	var debugLogging bool
-	var consulDiscovery bool
-	var consulAddr string
-	var watcherStrategy string
-	var yamlDiscovery bool
-	var yamlFile string
-	var marathonDiscovery bool
-	var marathonAddr string
-	var marathonCredsPath string
-	var marathonPollInterval time.Duration
-	var listenerPorts config.Uint32SliceFlag
+	var adsPort = 18000
+	var adminPort = 19005
+	var logLevel = config.LogLevelFlag(slog.LevelInfo)
+	var consulDiscovery = false
+	var consulAddr = "http://localhost:8500"
+	var watcherStrategy = "immediate"
+	var yamlDiscovery = false
+	var yamlFile = ""
+	var marathonDiscovery = false
+	var marathonAddr = "http://localhost:8080"
+	var marathonCredsPath = ""
+	var marathonPollInterval = 30 * time.Second
+	var listenerPorts config.Uint32SliceFlag = []uint32{18080}
 
-	flag.IntVar(&adsPort, "ads-port", defaultAdsPort, "ADS gRPC port")
-	flag.IntVar(&adminPort, "admin-port", defaultAdminPort, "admin port")
-	flag.BoolVar(&debugLogging, "debug", false, "enable debug logging")
+	flag.IntVar(&adsPort, "ads-port", adsPort, "ADS gRPC port")
+	flag.IntVar(&adminPort, "admin-port", adminPort, "admin port")
+	flag.Var(&logLevel, "log-level", "log level: debug, info, warn, error (default: info)")
 	flag.BoolVar(&consulDiscovery, "consul", false, "Use Consul for service discovery")
-	flag.StringVar(&consulAddr, "consul-addr", defaultConsulAddr, "consul HTTP address (host:port)")
-	flag.StringVar(&watcherStrategy, "consul-watcher-strategy", "immediate", "consul watcher strategy: immediate, debounce, or batch")
+	flag.StringVar(&consulAddr, "consul-addr", consulAddr, "consul HTTP address (host:port)")
+	flag.StringVar(&watcherStrategy, "consul-watcher-strategy", watcherStrategy, "consul watcher strategy: immediate, debounce, or batch")
 	flag.BoolVar(&yamlDiscovery, "yaml", false, "Use YAML file for service discovery")
 	flag.StringVar(&yamlFile, "yaml-file", "", "path to YAML configuration file (required when discovery=yaml)")
 	flag.BoolVar(&marathonDiscovery, "marathon", false, "Use Marathon for service discovery")
-	flag.StringVar(&marathonAddr, "marathon-addr", "http://localhost:8080", "marathon HTTP address")
+	flag.StringVar(&marathonAddr, "marathon-addr", marathonAddr, "marathon HTTP address")
 	flag.StringVar(&marathonCredsPath, "marathon-creds-path", "", "path to file containing marathon credentials (username:password)")
-	flag.DurationVar(&marathonPollInterval, "marathon-poll-interval", 30*time.Second, "interval between marathon service polls")
+	flag.DurationVar(&marathonPollInterval, "marathon-poll-interval", marathonPollInterval, "interval between marathon service polls (default: 30s)")
 	flag.Var(&listenerPorts, "listener-ports", "comma-separated list of listener ports (default: 18080)")
 	flag.Parse()
-
-	// Apply default listener port if none specified
-	if len(listenerPorts) == 0 {
-		listenerPorts = []uint32{18080}
-	}
 
 	// Validate flags
 	if !consulDiscovery && !yamlDiscovery && !marathonDiscovery {
@@ -84,17 +73,11 @@ func main() {
 	}
 
 	// Configure structured logging
-	var level = slog.LevelInfo
-	if debugLogging {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel.Level()}))
 	slog.SetDefault(logger)
 
 	// Initialize metrics
 	telemetry.InitMetrics()
-
-	slog.Info("starting control plane with blocking queries", "consul", consulAddr)
 
 	// Create snapshot cache
 	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil)
@@ -148,7 +131,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			consul.WatchConsulBlocking(ctx, consulAddr, consulConfig, aggregator)
+			consul.StartWatcher(ctx, consulAddr, consulConfig, aggregator)
 		}()
 	}
 

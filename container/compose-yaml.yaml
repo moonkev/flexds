@@ -18,7 +18,8 @@ services:
       - "19005"
       - "-listener-ports"
       - "18080,18081"
-      - "-debug"
+      - "-log-level"
+      - "debug"
     volumes:
       - ./configs/static-services.yaml:/etc/flexds/static-services.yaml:ro
     networks:
@@ -82,14 +83,14 @@ services:
       - SERVICE_PORT=8443
       - USE_TLS=true
 
-#  grpc-service-1:
-#    build:
-#      context: ./grpc-service
-#      dockerfile: Containerfile
-#    container_name: grpc-service-1
-#    ports:
-#      - "9090:9090"
-#    networks:
-#      - flexds-compose-yaml
-#    environment:
-#      - SERVICE_NAME=grpc-service
+  grpc-service-1:
+    build:
+      context: ./grpc-service
+      dockerfile: Containerfile
+    container_name: grpc-service-1
+    ports:
+      - "9090:9090"
+    networks:
+      - flexds-compose-yaml
+    environment:
+      - SERVICE_NAME=grpc-service
